@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound Waves — Physics Lab</title>
+<meta name="description" content="Watch air particles vibrate in place as compressions travel past, see the wave graph with wavelength and amplitude marked, and actually hear how frequency changes pitch. CBSE Class 9.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Sound Waves</h1>
+  <span class="chip c9">Class 9</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <canvas id="stage" aria-label="Top: a vibrating speaker and hundreds of air particles forming travelling compression bands. Bottom: the matching pressure-versus-distance wave graph with wavelength and amplitude marked."></canvas>
+
+    <div class="controls">
+      <div class="ctl">
+        <div class="lab"><label for="freq">Frequency f (pitch)</label><output id="freqOut"></output></div>
+        <input type="range" id="freq" min="100" max="1000" step="10" value="300">
+      </div>
+      <div class="ctl">
+        <div class="lab"><label for="amp">Amplitude (loudness)</label><output id="ampOut"></output></div>
+        <input type="range" id="amp" min="0" max="100" step="1" value="60">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: pitch vs loudness</button>
+      <button class="btn" id="hearBtn" aria-pressed="false">🔊 Hear it: OFF</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>Sound is not stuff flying to your ear — it's a <b>vibration passing through air</b>. The speaker pushes on nearby air particles; each particle just jiggles back and forth around its home spot (watch the coloured ones!), yet the pattern of squeezed bands (<b>compressions</b>) and stretched bands (<b>rarefactions</b>) races to the right at 343 m/s.</p>
+      <p><b>Frequency</b> = vibrations per second = <b>pitch</b>: a tabla's loose skin vibrates slowly (low pitch), a whistle vibrates fast (high pitch). <b>Amplitude</b> = size of the jiggle = <b>loudness</b> — it changes the wave's height, never its spacing. The wave here is slowed about 100× so your eyes can follow it.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">v = f × λ &nbsp;·&nbsp; T = 1 / f</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">Frequency f</div><div class="v" id="rF">—</div></div>
+        <div class="readout"><div class="k">Wavelength λ = v/f</div><div class="v" id="rL">—</div></div>
+        <div class="readout"><div class="k">Time period T = 1/f</div><div class="v" id="rT">—</div></div>
+        <div class="readout"><div class="k">Speed in air (fixed)</div><div class="v">343 m/s</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> tap <b>🔊 Hear it</b>, then slide frequency up slowly — the compressions squeeze closer together <i>and</i> the pitch you hear rises. Now slide amplitude instead: louder, but the spacing (λ) doesn't budge. Tap the canvas anytime to freeze the wave and study the bands.</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 16 / 10, maxH: 540 });
+  const ctx = view.ctx;
+  const FF = getComputedStyle(document.body).fontFamily;
+  const TAU = Math.PI * 2;
+
+  const V_SOUND = 343;      // m/s, speed of sound in air
+  const WIDTH_M = 3.5;      // metres of air shown across the particle field
+  const SLOW = 100;         // visual slow-down factor
+
+  /* ---------- air particles (rest positions as 0..1 fractions) ---------- */
+  const NP = 300;
+  const PX = new Float32Array(NP), PY = new Float32Array(NP);
+  (function seed() {
+    let r = 123457;
+    function rnd() { r = (r * 1103515245 + 12345) & 0x7fffffff; return r / 0x7fffffff; }
+    for (let i = 0; i < NP; i++) { PX[i] = rnd(); PY[i] = rnd(); }
+    /* first three are the tracked, coloured particles */
+    PX[0] = 0.22; PY[0] = 0.50;
+    PX[1] = 0.50; PY[1] = 0.30;
+    PX[2] = 0.78; PY[2] = 0.70;
+  })();
+
+  let phase = 0, paused = false;
+  let sweep = 0, sweepT = 0, capText = "";
+
+  const rF = document.getElementById("rF");
+  const rL = document.getElementById("rL");
+  const rT = document.getElementById("rT");
+
+  /* ---------- audio (created only on user tap; safe if blocked) ---------- */
+  let ac = null, osc = null, gainN = null, hearing = false;
+  const hearBtn = document.getElementById("hearBtn");
+  function gVal() { return 0.15 * amp() / 100; }
+  function startAudio() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) throw new Error("no WebAudio");
+      if (!ac) ac = new AC();
+      if (ac.state === "suspended") ac.resume();
+      osc = ac.createOscillator();
+      gainN = ac.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq();
+      gainN.gain.value = 0;
+      gainN.gain.setTargetAtTime(gVal(), ac.currentTime, 0.05);
+      osc.connect(gainN);
+      gainN.connect(ac.destination);
+      osc.start();
+      hearing = true;
+      hearBtn.textContent = "🔊 Hear it: ON";
+      hearBtn.classList.add("on");
+      hearBtn.setAttribute("aria-pressed", "true");
+    } catch (e) {
+      hearing = false; osc = null; gainN = null;
+      hearBtn.textContent = "🔇 Audio unavailable here";
+    }
+  }
+  function stopAudio() {
+    try {
+      if (osc) { osc.stop(); osc.disconnect(); }
+      if (gainN) gainN.disconnect();
+    } catch (e) {}
+    osc = null; gainN = null; hearing = false;
+    hearBtn.textContent = "🔊 Hear it: OFF";
+    hearBtn.classList.remove("on");
+    hearBtn.setAttribute("aria-pressed", "false");
+  }
+  hearBtn.addEventListener("click", function () {
+    if (hearing) stopAudio(); else startAudio();
+  });
+
+  /* ---------- sliders ---------- */
+  const freq = Sim.slider("freq", function (x) { return Math.round(x) + " Hz"; }, changed);
+  const amp  = Sim.slider("amp",  function (x) { return Math.round(x) + " %"; }, changed);
+  function lambda() { return V_SOUND / freq(); }
+  function changed() {
+    rF.textContent = Math.round(freq()) + " Hz";
+    rL.textContent = Sim.fmt(lambda(), 2) + " m";
+    rT.textContent = Sim.fmt(1000 / freq(), 2) + " ms";
+    if (osc && ac) {
+      try {
+        osc.frequency.setTargetAtTime(freq(), ac.currentTime, 0.03);
+        gainN.gain.setTargetAtTime(gVal(), ac.currentTime, 0.03);
+      } catch (e) {}
+    }
+  }
+  changed();
+
+  /* ---------- preset: sweep pitch, then loudness ---------- */
+  document.getElementById("preset").addEventListener("click", function () {
+    sweep = 1; sweepT = 0; paused = false;
+    freq.set(200); amp.set(15);
+  });
+  function sweepStep(dt) {
+    if (!sweep) return;
+    sweepT += dt;
+    if (sweep === 1) {
+      const T1 = 4;
+      freq.set(Math.round((200 + 600 * Math.min(sweepT / T1, 1)) / 10) * 10);
+      capText = "pitch rising… compressions squeeze closer";
+      if (sweepT >= T1) { sweep = 2; sweepT = 0; }
+    } else {
+      const T2 = 3;
+      amp.set(Math.round(15 + 80 * Math.min(sweepT / T2, 1)));
+      capText = "loudness rising… bigger jiggle, same spacing";
+      if (sweepT >= T2) { sweep = 0; capText = ""; }
+    }
+  }
+
+  /* tap to freeze / unfreeze the wave */
+  Sim.pointer(view.el, {
+    down: function () { paused = !paused; if (paused) { sweep = 0; capText = ""; } }
+  });
+
+  function pill(text, cx, y, c) {
+    ctx.font = "600 12.5px " + FF;
+    const pw = ctx.measureText(text).width + 26;
+    const x = Sim.clamp(cx - pw / 2, 6, view.w - pw - 6);
+    Sim.rr(ctx, x, y, pw, 26, 10);
+    ctx.fillStyle = c.surface; ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = c.ink; ctx.textAlign = "center";
+    ctx.fillText(text, x + pw / 2, y + 17.5);
+    ctx.textAlign = "left";
+  }
+
+  /* ---------- main draw ---------- */
+  function draw(dt) {
+    sweepStep(dt);
+    if (!paused) phase += (TAU * freq() / SLOW) * dt;
+    if (phase > TAU) phase -= TAU * Math.floor(phase / TAU);
+
+    const c = Sim.colors();
+    const w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+
+    const split = Math.round(h * 0.56);
+    const ox = 64, oxEnd = w - 10;
+    const paneW = oxEnd - ox;
+
+    const lamPx = (lambda() / WIDTH_M) * paneW;   // wavelength on screen
+    const k = TAU / lamPx;
+    const Amax = Math.min(12, lamPx * 0.22);
+    const Apx = (amp() / 100) * Amax;
+
+    /* divider */
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, split + 0.5); ctx.lineTo(w, split + 0.5); ctx.stroke();
+
+    /* titles */
+    ctx.fillStyle = c.muted; ctx.font = "700 10px " + FF;
+    ctx.fillText("AIR PARTICLES — the medium", 10, 15);
+    ctx.fillText("WAVE GRAPH — pressure vs distance", 10, split + 16);
+    ctx.textAlign = "right";
+    ctx.font = "600 10px " + FF;
+    ctx.fillText("slowed ~" + SLOW + "× so you can see it", w - 10, 15);
+    ctx.textAlign = "left";
+
+    /* ---------- top pane: longitudinal view ---------- */
+    const bandTop = 34, bandBot = split - 24;
+    const midY = (bandTop + bandBot) / 2;
+
+    /* speaker: body + vibrating cone (driven at the wave's phase at x = ox) */
+    const coneD = -Apx * Math.sin(phase);
+    ctx.fillStyle = c.surface2; ctx.strokeStyle = c.border; ctx.lineWidth = 1.5;
+    Sim.rr(ctx, 8, midY - 30, 32, 60, 6);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(40, midY - 26);
+    ctx.lineTo(52 + coneD * 1.5, midY - 9);
+    ctx.lineTo(52 + coneD * 1.5, midY + 9);
+    ctx.lineTo(40, midY + 26);
+    ctx.closePath();
+    ctx.fillStyle = c.warm; ctx.fill();
+
+    /* particles: x = x0 + A·sin(k·x0 − ωt) — each only jiggles in place */
+    ctx.fillStyle = c.ink;
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    for (let i = 3; i < NP; i++) {
+      const x0 = ox + PX[i] * paneW;
+      const x = x0 + Apx * Math.sin(k * (x0 - ox) - phase);
+      const y = bandTop + PY[i] * (bandBot - bandTop);
+      ctx.moveTo(x + 2, y);
+      ctx.arc(x, y, 2, 0, 7);
+    }
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    /* tracked particles + their home-position ticks */
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5;
+    for (let i = 0; i < 3; i++) {
+      const x0 = ox + PX[i] * paneW;
+      ctx.beginPath(); ctx.moveTo(x0, bandBot + 4); ctx.lineTo(x0, bandBot + 10); ctx.stroke();
+    }
+    ctx.fillStyle = c.accent;
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const x0 = ox + PX[i] * paneW;
+      const x = x0 + Apx * Math.sin(k * (x0 - ox) - phase);
+      const y = bandTop + PY[i] * (bandBot - bandTop);
+      ctx.moveTo(x + 3.6, y);
+      ctx.arc(x, y, 3.6, 0, 7);
+    }
+    ctx.fill();
+
+    /* travelling C (compression) and R (rarefaction) labels */
+    let xc = ((Math.PI + phase) % TAU) / k;       // density max: k·x − ωt = π
+    let xr = (phase % TAU) / k;                   // density min: k·x − ωt = 0
+    while (xc < 14) xc += lamPx;
+    while (xr < 14) xr += lamPx;
+    ctx.font = "700 11px " + FF; ctx.textAlign = "center";
+    if (xc < paneW - 14) {
+      ctx.fillStyle = c.hot;
+      ctx.fillText("C", ox + xc, bandTop - 10);
+      ctx.strokeStyle = c.hot; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ox + xc, bandTop - 6); ctx.lineTo(ox + xc, bandTop); ctx.stroke();
+    }
+    if (xr < paneW - 14) {
+      ctx.fillStyle = c.cool;
+      ctx.fillText("R", ox + xr, bandTop - 10);
+      ctx.strokeStyle = c.cool; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ox + xr, bandTop - 6); ctx.lineTo(ox + xr, bandTop); ctx.stroke();
+    }
+    ctx.textAlign = "left";
+
+    /* ---------- bottom pane: pressure vs distance graph ---------- */
+    const gMid = split + (h - split) / 2 + 8;
+    const gA = (amp() / 100) * Math.min((h - split) / 2 - 26, 46);
+
+    /* alignment guide: compression band lines up with a pressure crest */
+    if (xc < paneW - 14) {
+      ctx.strokeStyle = c.grid; ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.moveTo(ox + xc, bandTop); ctx.lineTo(ox + xc, gMid - gA); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    /* axis */
+    ctx.strokeStyle = c.grid; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(ox, gMid); ctx.lineTo(oxEnd, gMid); ctx.stroke();
+    ctx.fillStyle = c.muted; ctx.font = "600 10px " + FF;
+    ctx.fillText("normal", 14, gMid - 2);
+    ctx.fillText("pressure", 14, gMid + 10);
+
+    /* pressure curve p ∝ −cos(kx − ωt): crests sit under compressions */
+    ctx.strokeStyle = c.accent2; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let x = 0; x <= paneW; x += 3) {
+      const y = gMid + gA * Math.cos(k * x - phase);
+      if (x === 0) ctx.moveTo(ox + x, y); else ctx.lineTo(ox + x, y);
+    }
+    ctx.stroke();
+
+    /* wavelength marker between two crests (crest = compression) */
+    let x1 = ((Math.PI + phase) % TAU) / k;
+    while (x1 < 8) x1 += lamPx;
+    const full = x1 + lamPx <= paneW - 4;
+    const half = !full && x1 + lamPx / 2 <= paneW - 4;
+    if ((full || half) && gA > 3) {
+      const x2 = x1 + (full ? lamPx : lamPx / 2);
+      const my = gMid - gA - 12;
+      ctx.strokeStyle = c.warm; ctx.fillStyle = c.warm; ctx.lineWidth = 1.5;
+      Sim.arrow(ctx, ox + x1 + (x2 - x1) / 2, my, ox + x1, my, 6);
+      Sim.arrow(ctx, ox + x1 + (x2 - x1) / 2, my, ox + x2, my, 6);
+      ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ox + x1, my - 4); ctx.lineTo(ox + x1, gMid - gA); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ox + x2, my - 4); ctx.lineTo(ox + x2, gMid - gA * (full ? 1 : -1)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = "700 11px " + FF; ctx.textAlign = "center";
+      ctx.fillText(full ? ("λ = " + Sim.fmt(lambda(), 2) + " m") : ("λ/2 = " + Sim.fmt(lambda() / 2, 2) + " m"),
+                   ox + (x1 + x2) / 2, my - 7);
+      ctx.textAlign = "left";
+    }
+
+    /* amplitude marker */
+    if (gA > 8) {
+      let xa = ((Math.PI + phase) % TAU) / k;
+      while (xa < paneW * 0.55) xa += lamPx;    // pick a crest on the right half
+      if (xa < paneW - 10) {
+        ctx.strokeStyle = c.cool; ctx.fillStyle = c.cool; ctx.lineWidth = 1.5;
+        Sim.arrow(ctx, ox + xa, gMid, ox + xa, gMid - gA, 6);
+        ctx.font = "600 10.5px " + FF;
+        ctx.fillText("amplitude", ox + xa + 6, gMid - gA / 2 + 3);
+      }
+    }
+
+    /* captions (in the dead zone straddling the pane divider) */
+    if (capText) pill(capText, w / 2, split - 13, c);
+    else if (paused) pill("paused — tap to resume", w / 2, split - 13, c);
+
+    if (amp() === 0) {
+      ctx.fillStyle = c.muted; ctx.font = "600 12px " + FF; ctx.textAlign = "center";
+      ctx.fillText("amplitude 0 — perfectly still air = silence", ox + paneW / 2, midY - 20);
+      ctx.textAlign = "left";
+    }
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

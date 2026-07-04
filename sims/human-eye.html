@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Human Eye — Physics Lab</title>
+<meta name="description" content="Watch the eye's lens change shape to focus, see exactly what myopia and hypermetropia are geometrically, and fix them with spectacles. CBSE Class 10.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+<style>
+  /* tiny sim-specific tweak: segment buttons wrap on narrow phones */
+  .seg { flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>The Human Eye</h1>
+  <span class="chip c10">Class 10</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <div class="btn-row" role="group" aria-label="Choose eye condition">
+      <div class="seg">
+        <button class="btn on" id="mNorm">Normal</button>
+        <button class="btn" id="mMyo">Myopia</button>
+        <button class="btn" id="mHyp">Hypermetropia</button>
+      </div>
+      <button class="btn" id="specs">Add spectacles</button>
+    </div>
+
+    <canvas id="stage" aria-label="Side view of a human eye focusing light from an object onto the retina, with optional spectacle correction"></canvas>
+
+    <div class="controls">
+      <div class="ctl">
+        <div class="lab"><label for="dist">Object distance</label><output id="distOut"></output></div>
+        <input type="range" id="dist" min="0" max="100" step="0.5" value="35">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: myopia and its fix</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>Your cornea does most of the bending (about +40 D, fixed). The soft lens behind it does the fine-tuning: <b>ciliary muscles squeeze it fatter</b> (up to ~+24 D) for near things, and relax it thinner (~+20 D) for far things. A sharp image forms only if the rays meet <b>exactly on the retina</b>.</p>
+      <p>That's also why you can't read closer than about <b>25 cm</b> — the lens simply can't get any fatter. And with age it stiffens, the near point drifts away, and grandparents hold the newspaper at arm's length — until convex reading glasses (the hypermetropia fix) bring it back.</p>
+      <p><b>Myopia</b> = eyeball a bit too long → far things focus <i>in front of</i> the retina. <b>Hypermetropia</b> = a bit too short → near things focus <i>behind</i> it. Spectacles just add or remove a little bending power. Geometry, not magic.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">P = 1/f(in m) dioptre<br>1/v − 1/u = 1/f</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">object distance</div><div class="v" id="rD">—</div></div>
+        <div class="readout"><div class="k">eye lens power</div><div class="v" id="rP">—</div></div>
+        <div class="readout"><div class="k">image lands</div><div class="v" id="rImg">—</div></div>
+        <div class="readout"><div class="k">spectacles</div><div class="v" id="rSpec">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> switch to <b>Myopia</b> and drag the object from 25 cm slowly to ∞. Reading distance stays sharp, but past ~50 cm (this eye's far point) the focus slips off the retina and the world blurs. Now tap <b>Add spectacles</b> — the −2 D concave lens un-bends the rays just enough. Sharp again.</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 1.5, maxH: 500 });
+  const ctx = view.ctx;
+  const FONT = getComputedStyle(document.body).fontFamily;
+
+  /* ---------- the reduced-eye model ----------
+     P_total = P_cornea (40 D, fixed) + P_lens (20–24 D) [+ P_spec]
+     retina sits where a relaxed-to-squeezed lens can reach:
+       normal 1000/60  = 16.67 mm   (near 25 cm … far ∞ all reachable)
+       myopia 1000/58  = 17.24 mm   (too long → far point 0.5 m, fix −2.0 D)
+       hyper  1000/62.5= 16.00 mm   (too short → near point 0.67 m, fix +2.5 D) */
+  const P_CORNEA = 40, P_MIN = 20, P_MAX = 24;
+  const EYES = {
+    norm: { vRet: 1000 / 60,   spec: 0,    tag: "normal eye — sharp from 25 cm to ∞" },
+    myo:  { vRet: 1000 / 58,   spec: -2.0, tag: "myopia: eyeball too long — far point only 0.5 m" },
+    hyp:  { vRet: 1000 / 62.5, spec: +2.5, tag: "hypermetropia: eyeball too short — can't read nearer than 0.67 m" }
+  };
+  let eyeKey = "norm";
+  let specsOn = false;
+  let pLensDrawn = 21;          // animated (ciliary squeeze)
+
+  /* ---------- controls ---------- */
+  const segBtns = { norm: document.getElementById("mNorm"), myo: document.getElementById("mMyo"), hyp: document.getElementById("mHyp") };
+  const specBtn = document.getElementById("specs");
+  const rD = document.getElementById("rD"), rP = document.getElementById("rP"),
+        rImg = document.getElementById("rImg"), rSpec = document.getElementById("rSpec");
+
+  function setEye(k, keepPreset) {
+    if (!keepPreset) preset.on = false;
+    eyeKey = k;
+    for (const kk in segBtns) segBtns[kk].classList.toggle("on", kk === k);
+    updateSpecBtn();
+  }
+  segBtns.norm.addEventListener("click", function () { setEye("norm"); });
+  segBtns.myo.addEventListener("click", function () { setEye("myo"); });
+  segBtns.hyp.addEventListener("click", function () { setEye("hyp"); });
+
+  function updateSpecBtn() {
+    const p = EYES[eyeKey].spec;
+    specBtn.classList.toggle("on", specsOn);
+    specBtn.textContent = specsOn
+      ? "Spectacles ON (" + (p > 0 ? "+" : "") + p.toFixed(1) + " D)"
+      : "Add spectacles";
+  }
+  specBtn.addEventListener("click", function () {
+    preset.on = false;
+    specsOn = !specsOn;
+    updateSpecBtn();
+  });
+
+  /* object distance: log scale 0.25 m → 10 m, end stop = ∞ */
+  const LOG40 = Math.log(40);
+  function distM() {
+    const v = dist();
+    return v >= 100 ? Infinity : 0.25 * Math.exp(LOG40 * v / 99);
+  }
+  const dist = Sim.slider("dist", function (v) {
+    if (v >= 100) return "∞ (far away)";
+    const d = 0.25 * Math.exp(LOG40 * v / 99);
+    return d < 1 ? Math.round(d * 100) + " cm" : d.toFixed(1) + " m";
+  });
+  /* user touching the slider cancels a running preset (set() must not) */
+  dist.el.addEventListener("pointerdown", function () { preset.on = false; });
+  dist.el.addEventListener("keydown", function () { preset.on = false; });
+
+  /* ---------- physics ---------- */
+  function compute() {
+    const eye = EYES[eyeKey];
+    const d = distM();
+    const invD = isFinite(d) ? 1 / d : 0;
+    const pSpec = specsOn ? eye.spec : 0;
+    const pNeeded = 1000 / eye.vRet + invD;                  // to land exactly on retina
+    const pTarget = Sim.clamp(pNeeded - P_CORNEA - pSpec, P_MIN, P_MAX);
+    const atLimit = Math.abs(pTarget - (pNeeded - P_CORNEA - pSpec)) > 0.01;
+    return { eye: eye, d: d, invD: invD, pSpec: pSpec, pTarget: pTarget, atLimit: atLimit };
+  }
+  function focusOf(r, pLens) {
+    const pTot = P_CORNEA + pLens + r.pSpec;
+    return 1000 / (pTot - r.invD);                           // image distance, mm
+  }
+
+  /* ---------- preset: myopia → blur → specs → sharp ---------- */
+  const preset = { on: false, t: 0, cap: "" };
+  document.getElementById("preset").addEventListener("click", function () {
+    preset.on = true; preset.t = 0;
+    specsOn = false;
+    setEye("myo", true);
+    updateSpecBtn();
+  });
+
+  /* ---------- drag the tree ---------- */
+  let dragging = false;
+  let geo = null;
+  Sim.pointer(view.el, {
+    down: function (p) {
+      if (!geo) return;
+      if (Math.abs(p.x - geo.xObj) < 30 && Math.abs(p.y - geo.y0) < 70) {
+        dragging = true; preset.on = false;
+      }
+    },
+    move: function (p) {
+      if (!dragging || !geo) return;
+      const tn = Sim.clamp((geo.near - p.x) / (geo.near - geo.far), 0, 1);
+      dist.set(Math.round(tn * 200) / 2);
+    },
+    up: function () { dragging = false; }
+  });
+
+  /* drawing exaggeration so long/short eyeballs are clearly visible */
+  function gmm(v) { return 16.67 + (v - 16.67) * 4; }
+
+  /* ---------- main draw ---------- */
+  function draw(dt, time) {
+    const c = Sim.colors();
+    const w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+
+    /* preset script */
+    if (preset.on) {
+      preset.t += dt;
+      const t = preset.t;
+      const nrw = w < 520;
+      if (t < 1.4) preset.cap = "A myopic eye is a little too LONG.";
+      if (t >= 1.4 && dist() < 100) dist.set(Math.min(100, dist() + dt * 45));
+      if (t >= 1.4 && t < 5.0) preset.cap = nrw ? "Far away: focus falls IN FRONT of retina → blurry ✗"
+        : "Far away: rays meet IN FRONT of the retina → blurry ✗";
+      if (t >= 5.0 && !specsOn) { specsOn = true; updateSpecBtn(); }
+      if (t >= 5.0) preset.cap = nrw ? "−2.0 D specs: focus back on the retina ✓"
+        : "−2.0 D concave specs un-bend the rays → focus lands back on the retina ✓";
+      if (t > 9) preset.on = false;
+    }
+
+    const r = compute();
+    /* ciliary muscles adjust smoothly */
+    pLensDrawn += (r.pTarget - pLensDrawn) * Math.min(1, dt * 5);
+    if (Math.abs(pLensDrawn - r.pTarget) < 0.005) pLensDrawn = r.pTarget;
+    const vF = focusOf(r, pLensDrawn);          // where rays actually meet (mm)
+    const dMM = vF - r.eye.vRet;                // + behind retina, − in front
+    const sharp = Math.abs(focusOf(r, r.pTarget) - r.eye.vRet) < 0.15 && Math.abs(pLensDrawn - r.pTarget) < 0.15;
+
+    /* ---- layout ---- */
+    const eyeW = Sim.clamp(w * 0.32, 128, 260);
+    const s = eyeW / 22;                        // px per mm
+    const y0 = h * 0.46;
+    const xLens = w - 18 - 19 * s;
+    const xFront = xLens - 3 * s;
+    const xRet = xLens + Sim.clamp(gmm(r.eye.vRet), 5, 26) * s;
+    const xFoc = xLens + Sim.clamp(gmm(vF), 5, 26) * s;
+    const ryEye = 7.5 * s;
+    const xSpec = xFront - Math.max(20, 2 * s);
+    const tn = Math.min(dist(), 100) / 100;
+    const near = xSpec - Math.max(64, w * 0.10);
+    const far = 26;
+    const xObj = Sim.lerp(near, far, tn);
+    const hTree = Sim.clamp(h * 0.14, 26, 52) * Sim.lerp(1.05, 0.6, tn);
+    geo = { xObj: xObj, y0: y0, near: near, far: far };
+
+    const smallF = "600 " + Math.min(13, Math.max(10, Math.round(w / 36))) + "px " + FONT;
+
+    /* optical axis */
+    ctx.strokeStyle = c.grid; ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.moveTo(10, y0); ctx.lineTo(xRet + 6, y0); ctx.stroke();
+    ctx.setLineDash([]);
+
+    /* mode tag */
+    ctx.font = smallF; ctx.fillStyle = c.muted; ctx.textAlign = "left";
+    ctx.fillText(w < 480 ? r.eye.tag.split(" — ")[0] : r.eye.tag, 12, 18);
+
+    /* ---- object (tree) ---- */
+    drawTree(c, xObj, y0, hTree, false);
+    if (!isFinite(r.d)) {   // "very far away" squiggle on the axis
+      ctx.strokeStyle = c.muted; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(xObj + 22, y0 - 5); ctx.lineTo(xObj + 30, y0 + 5);
+      ctx.moveTo(xObj + 30, y0 - 5); ctx.lineTo(xObj + 38, y0 + 5);
+      ctx.stroke();
+    }
+
+    /* ---- rays ---- */
+    const tipY = y0 - hTree;
+    const a = 2.4 * s;                                 // half-aperture at eye lens
+    const fSpecPx = (specsOn && r.pSpec !== 0) ? (1000 / r.pSpec) * s : 1e12;
+    const parallel = !isFinite(r.d);
+    const slopeInf = 0.055;   // distant object tip above axis → rays descend gently
+
+    /* chief ray: passes through eye-lens centre; solve its spec-plane height (linear) */
+    function yAtLens(ys) {
+      const s0 = parallel ? slopeInf : (ys - tipY) / (xSpec - xObj);
+      const s1 = s0 - (ys - y0) / fSpecPx;
+      return ys + s1 * (xLens - xSpec);
+    }
+    const g0 = yAtLens(y0) - y0, g1 = yAtLens(y0 + 10) - y0;
+    const ysChief = y0 - g0 * 10 / (g1 - g0);
+    const sChief = (parallel ? slopeInf : (ysChief - tipY) / (xSpec - xObj)) - (ysChief - y0) / fSpecPx;
+    const yF = y0 + sChief * (xFoc - xLens);           // image point height at the focus plane
+
+    ctx.strokeStyle = c.warm; ctx.lineWidth = 1.6; ctx.lineCap = "round";
+    for (let k = -1; k <= 1; k++) {
+      const yl = y0 + k * a;                           // arrival height on eye lens
+      /* find the spec-plane height that lands at yl (linear solve again) */
+      const h0 = yAtLens(y0) - yl, h1 = yAtLens(y0 + 10) - yl;
+      const ys = y0 - h0 * 10 / (h1 - h0);
+      ctx.beginPath();
+      if (parallel) ctx.moveTo(6, ys - (xSpec - 6) * slopeInf);
+      else ctx.moveTo(xObj, tipY);
+      ctx.lineTo(xSpec, ys);
+      ctx.lineTo(xLens, yl);
+      /* after the eye lens: head for the focus point, stop at retina */
+      const sl = (yF - yl) / (xFoc - xLens);
+      ctx.lineTo(xRet, yl + sl * (xRet - xLens));
+      ctx.stroke();
+      if (xFoc > xRet + 2) {                           // focus behind retina → dashed would-be path
+        ctx.setLineDash([3, 4]);
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(xRet, yl + sl * (xRet - xLens));
+        ctx.lineTo(xFoc, yF);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    /* focus marker */
+    ctx.fillStyle = sharp ? c.accent2 : c.hot;
+    ctx.beginPath(); ctx.arc(xFoc, yF, 3.5, 0, 7); ctx.fill();
+
+    /* ---- the eye ---- */
+    const cx = (xFront + xRet) / 2, rx = (xRet - xFront) / 2;
+    ctx.fillStyle = c.dark ? "rgba(233,237,248,0.05)" : "rgba(23,32,58,0.04)";
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.ellipse(cx, y0, rx, ryEye, 0, 0, 7); ctx.fill(); ctx.stroke();
+
+    /* retina: back inner surface */
+    ctx.strokeStyle = c.accent2; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.ellipse(cx, y0, rx - 2, ryEye - 2, 0, -1.0, 1.0); ctx.stroke();
+    ctx.font = smallF; ctx.fillStyle = c.accent2; ctx.textAlign = "left";
+    ctx.fillText("retina", Math.min(xRet - 12, w - 46), y0 - ryEye - 6);
+
+    /* cornea */
+    ctx.strokeStyle = c.cool; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(xFront + 1.6 * s, y0 - 4.6 * s);
+    ctx.quadraticCurveTo(xFront - 2.4 * s, y0, xFront + 1.6 * s, y0 + 4.6 * s);
+    ctx.stroke();
+    ctx.fillStyle = c.muted; ctx.textAlign = "right";
+    ctx.fillText("cornea +40 D", xFront - 4, y0 - ryEye + 2, Math.max(60, xFront - 8));
+
+    /* iris */
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(xLens - 1.2 * s, y0 - 6.4 * s); ctx.lineTo(xLens - 1.2 * s, y0 - 3.1 * s);
+    ctx.moveTo(xLens - 1.2 * s, y0 + 6.4 * s); ctx.lineTo(xLens - 1.2 * s, y0 + 3.1 * s);
+    ctx.stroke();
+
+    /* crystalline lens — thickness follows the ciliary squeeze */
+    const squeeze = (pLensDrawn - P_MIN) / (P_MAX - P_MIN);
+    const lensRx = s * Sim.lerp(1.5, 3.0, squeeze);
+    ctx.fillStyle = c.dark ? "rgba(56,189,248,0.22)" : "rgba(2,132,199,0.16)";
+    ctx.strokeStyle = c.cool; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(xLens, y0, lensRx, 4.6 * s, 0, 0, 7); ctx.fill(); ctx.stroke();
+
+    /* ciliary caption */
+    ctx.textAlign = "center"; ctx.fillStyle = r.atLimit ? c.hot : c.muted;
+    const cilTxt = r.atLimit
+      ? (r.pTarget >= P_MAX ? "lens at its fattest — can't bend more!" : "lens at its thinnest — can't relax more!")
+      : (squeeze > 0.6 ? "ciliary muscles squeeze → fat lens" : squeeze < 0.25 ? "ciliary muscles relaxed → thin lens" : "ciliary muscles part-squeezed");
+    ctx.fillText(cilTxt, Math.min(cx, w - 110), y0 + ryEye + 18);
+
+    /* ---- image on retina: sharp or blur ---- */
+    const slC = (yF - y0) / (xFoc - xLens);
+    const yImgRet = y0 + slC * (xRet - xLens);
+    if (sharp) {
+      drawTree(c, xRet - 2, y0, -(yImgRet - y0), true);
+      ctx.fillStyle = c.accent2; ctx.textAlign = "left";
+      ctx.font = "700 " + Math.min(15, Math.max(11, Math.round(w / 32))) + "px " + FONT;
+      ctx.fillText("✓ sharp", Math.min(xRet - 30, w - 62), y0 + ryEye + 36);
+    } else {
+      const spread = Math.abs(2 * a * (xRet - xFoc) / (xFoc - xLens));
+      ctx.fillStyle = c.dark ? "rgba(251,113,133,0.30)" : "rgba(225,29,72,0.22)";
+      ctx.beginPath();
+      ctx.ellipse(xRet - 2, Sim.clamp(yImgRet, y0 - ryEye + 8, y0 + ryEye - 8), 4, Math.min(spread / 2 + 5, ryEye - 6), 0, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = c.hot; ctx.textAlign = "left";
+      ctx.font = "700 " + Math.min(15, Math.max(11, Math.round(w / 32))) + "px " + FONT;
+      ctx.fillText("✗ blurry", Math.min(xRet - 30, w - 66), y0 + ryEye + 36);
+    }
+
+    /* ---- spectacles ---- */
+    if (specsOn && r.pSpec !== 0) {
+      const sh = 5.8 * s;
+      ctx.fillStyle = c.dark ? "rgba(56,189,248,0.14)" : "rgba(2,132,199,0.10)";
+      ctx.strokeStyle = c.cool; ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (r.pSpec < 0) {              // concave (hourglass)
+        ctx.moveTo(xSpec - 7, y0 - sh);
+        ctx.quadraticCurveTo(xSpec + 1, y0, xSpec - 7, y0 + sh);
+        ctx.lineTo(xSpec + 7, y0 + sh);
+        ctx.quadraticCurveTo(xSpec - 1, y0, xSpec + 7, y0 - sh);
+      } else {                        // convex (pointed oval)
+        ctx.moveTo(xSpec, y0 - sh);
+        ctx.quadraticCurveTo(xSpec - 10, y0, xSpec, y0 + sh);
+        ctx.quadraticCurveTo(xSpec + 10, y0, xSpec, y0 - sh);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = c.cool; ctx.textAlign = "center"; ctx.font = smallF;
+      ctx.fillText((r.pSpec > 0 ? "+" : "−") + Math.abs(r.pSpec).toFixed(1) + " D", xSpec, y0 - sh - 8);
+    }
+
+    /* ---- caption strip ---- */
+    ctx.font = "600 " + Math.min(13.5, Math.max(10.5, Math.round(w / 36))) + "px " + FONT;
+    ctx.textAlign = "center";
+    if (preset.on) {
+      ctx.fillStyle = c.warm;
+      ctx.fillText(preset.cap, w / 2, h - 10);
+    } else {
+      ctx.fillStyle = c.muted;
+      ctx.fillText(w < 480 ? "drag the tree, or slide the distance" :
+        "drag the tree closer and farther — watch the lens change shape to chase the focus", w / 2, h - 10);
+    }
+    ctx.textAlign = "left";
+
+    /* ---- readouts ---- */
+    setText(rD, isFinite(r.d) ? (r.d < 1 ? Math.round(r.d * 100) + " cm" : r.d.toFixed(1) + " m") : "∞");
+    setText(rP, pLensDrawn.toFixed(1) + " D (20–24)");
+    setText(rImg, sharp ? "on retina ✓ sharp"
+      : Math.abs(dMM).toFixed(1) + " mm " + (dMM < 0 ? "in front" : "behind") + " → blurry");
+    setText(rSpec, specsOn
+      ? (r.pSpec === 0 ? "0 D (not needed)" : (r.pSpec > 0 ? "+" : "−") + Math.abs(r.pSpec).toFixed(1) + " D (" + (r.pSpec > 0 ? "convex" : "concave") + ")")
+      : "off");
+    void time;
+  }
+
+  function setText(el, t) { if (el.textContent !== t) el.textContent = t; }
+
+  /* little tree; hgt < 0 draws it inverted (retinal image) */
+  function drawTree(c, x, baseY, hgt, tiny) {
+    const up = hgt >= 0 ? 1 : -1;
+    const hh = Math.abs(hgt);
+    if (hh < 3) return;
+    const trunk = hh * 0.3, crown = hh * 0.7, ww = Math.max(4, hh * 0.42);
+    ctx.strokeStyle = tiny ? c.accent2 : "#8a5a2b";
+    ctx.lineWidth = Math.max(2, hh * 0.08);
+    ctx.beginPath(); ctx.moveTo(x, baseY); ctx.lineTo(x, baseY - up * trunk); ctx.stroke();
+    ctx.fillStyle = tiny ? c.accent2 : "#2f9e44";
+    ctx.beginPath();
+    ctx.moveTo(x - ww, baseY - up * trunk);
+    ctx.lineTo(x + ww, baseY - up * trunk);
+    ctx.lineTo(x, baseY - up * (trunk + crown));
+    ctx.closePath(); ctx.fill();
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

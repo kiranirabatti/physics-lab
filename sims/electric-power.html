@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electric Power &amp; Heating — Physics Lab</title>
+<meta name="description" content="Interactive electric power simulation: plug an LED, fan, iron or geyser into Indian 230 V mains, watch the energy meter count units and the cost tick up in rupees. CBSE Class 10.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+<style>
+  #appSeg{display:flex;flex-wrap:wrap;max-width:100%;margin:10px 6px 0}
+  #appSeg .btn{flex:1 1 auto}
+  .readout.wide{grid-column:1 / -1}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Electric Power &amp; Heating</h1>
+  <span class="chip c10">Class 10</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <canvas id="stage" aria-label="An appliance plugged into Indian 230 volt mains, with a glowing heating element and an energy meter counting units and cost in rupees."></canvas>
+
+    <div class="seg" id="appSeg" role="group" aria-label="Choose appliance">
+      <button class="btn" data-i="0">LED 9 W</button>
+      <button class="btn on" data-i="1">Fan 75 W</button>
+      <button class="btn" data-i="2">Iron 1000 W</button>
+      <button class="btn" data-i="3">Geyser 2000 W</button>
+    </div>
+
+    <div class="controls">
+      <div class="ctl">
+        <div class="lab"><label for="tariff">Electricity tariff</label><output id="tariffOut"></output></div>
+        <input type="range" id="tariff" min="4" max="10" step="0.5" value="7">
+      </div>
+      <div class="ctl">
+        <div class="lab"><label for="hours">Hours of daily use</label><output id="hoursOut"></output></div>
+        <input type="range" id="hours" min="0.5" max="8" step="0.5" value="1">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: geyser vs LED for one hour</button>
+      <button class="btn on" id="runBtn">⏸ Pause</button>
+      <button class="btn" id="resetBtn">Reset meter</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>Every appliance in your house gets the same push — <b>230 V</b> from the mains. What differs is the <b>current</b> each one pulls: power P = V × I. A geyser gulps about 8.7 A; an LED bulb sips 0.04 A.</p>
+      <p>Anything whose <i>job</i> is heat — geyser, iron, kettle, room heater — needs huge power, because making heat (H = I²Rt) is expensive. That's why these few appliances decide your electricity bill, not the lights.</p>
+      <p>The meter counts <b>units</b>: 1 unit = 1 kWh. A geyser eats 2 units every hour. The LED would take almost 5 <i>days</i> of continuous running to use one unit.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">P = V × I = I²R = V²/R</div>
+      <div class="formula" style="margin-top:8px">1 unit = 1 kWh &nbsp;·&nbsp; cost = units × tariff</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">Current I = P/V</div><div class="v" id="rI">—</div></div>
+        <div class="readout"><div class="k">Resistance R = V²/P</div><div class="v" id="rR">—</div></div>
+        <div class="readout"><div class="k">Units used</div><div class="v" id="rU">—</div></div>
+        <div class="readout"><div class="k">Heat H = Pt</div><div class="v" id="rH">—</div></div>
+        <div class="readout"><div class="k">Cost so far</div><div class="v" id="rC">—</div></div>
+        <div class="readout"><div class="k">Monthly bill*</div><div class="v" id="rB">—</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 0">*this appliance alone, at your “hours of daily use” × 30 days.</p>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> pick the geyser and watch the ₹ counter sprint — about ₹14 every sim-hour at ₹7/unit. Run it 1 h/day and the month costs ≈ ₹420! Now switch to the LED: the meter barely crawls (≈ ₹2/month). Winter tip: a geyser timer saves real money.</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const V = 230;                    // Indian mains
+  const MIN_PER_S = 10;             // 1 real second = 10 simulated minutes
+  const CAPH = 54;
+  const HINT = "Fast-forward time: 1 real second = 10 simulated minutes. Tap the appliance to switch it on/off — then try the geyser!";
+  const APPS = [
+    { name: "LED bulb", P: 9,    coil: "driver chip — barely any heat" },
+    { name: "Fan",      P: 75,   coil: "motor coil — a little heat" },
+    { name: "Iron",     P: 1000, coil: "heating element — pure heat" },
+    { name: "Geyser",   P: 2000, coil: "heating element — pure heat" }
+  ];
+
+  const cvs = document.getElementById("stage");
+  function fitNarrow(v) {
+    if (v.w < 560) {
+      const hh = Sim.clamp(Math.round(v.w * 1.12), 330,
+        Math.max(330, Math.min(540, window.innerHeight - 210)));
+      if (hh !== v.h) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        v.el.style.height = hh + "px";
+        v.el.height = Math.round(hh * dpr);
+        v.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        v.h = hh;
+      }
+    }
+  }
+  const view = Sim.canvas(cvs, { aspect: 16 / 8.4, maxH: 450, onResize: fitNarrow });
+  const ctx = view.ctx;
+  const FF = getComputedStyle(document.body).fontFamily;
+  const MONO = (getComputedStyle(document.documentElement).getPropertyValue("--mono") || "monospace").trim();
+
+  /* ---------- state ---------- */
+  let sel = 1;                  // start on the fan
+  let running = true;
+  let simSec = 0, units = 0;    // sim clock (s), energy (kWh)
+  let boost = 1;                // preset fast-forward multiplier
+  let heat = 0;                 // eased 0..1 heating-element temperature
+  let fanAng = 0, fanSpin = 0, blink = 0, uiT = 1;
+  let caption = "";
+  let demo = null;
+  const lay = { ax: 0, cy: 0 };   // last appliance position, for tap hit-testing
+
+  const rI = document.getElementById("rI"), rR = document.getElementById("rR");
+  const rU = document.getElementById("rU"), rH = document.getElementById("rH");
+  const rC = document.getElementById("rC"), rB = document.getElementById("rB");
+  const runBtn = document.getElementById("runBtn");
+
+  const tariff = Sim.slider("tariff", function (v) { return "₹" + v.toFixed(1) + " / unit"; }, uiNow);
+  const hours  = Sim.slider("hours",  function (v) { return v.toFixed(1) + " h / day"; }, uiNow);
+
+  /* heat-shimmer particle pool (fixed size, recycled — no allocation) */
+  const parts = [];
+  for (let i = 0; i < 14; i++) parts.push({ x: 0, y: 0, life: 0, seed: i * 1.73 });
+
+  /* wire current dots */
+  const wireDots = [];
+  for (let i = 0; i < 8; i++) wireDots.push(i / 8);
+
+  function uiNow() {
+    const P = APPS[sel].P;
+    const I = P / V;
+    rI.textContent = (I < 1 ? Sim.fmt(I, 3) : Sim.fmt(I, 2)) + " A";
+    const Rv = V * V / P;
+    rR.textContent = (Rv >= 100 ? Sim.fmt(Rv, 0) : Sim.fmt(Rv, 1)) + " Ω";
+    rU.textContent = Sim.fmt(units, 3) + " kWh";
+    rH.textContent = fmtJ(units * 3.6e6);
+    rC.textContent = "₹ " + Sim.fmt(units * tariff(), 2);
+    rB.textContent = "₹ " + Sim.fmt(P / 1000 * hours() * 30 * tariff(), 0) + " / month";
+  }
+  function fmtJ(J) {
+    if (J < 1000) return Sim.fmt(J, 0) + " J";
+    if (J < 1e6) return Sim.fmt(J / 1000, 1) + " kJ";
+    return Sim.fmt(J / 1e6, 2) + " MJ";
+  }
+
+  /* ---------- controls ---------- */
+  const segBtns = document.querySelectorAll("#appSeg .btn");
+  function selApply(i) {
+    sel = i;
+    for (let k = 0; k < segBtns.length; k++) segBtns[k].classList.toggle("on", k === i);
+    uiNow();
+  }
+  function cancelDemo() {
+    if (demo) { demo = null; boost = 1; caption = ""; }
+  }
+  for (let k = 0; k < segBtns.length; k++) {
+    segBtns[k].addEventListener("click", function () {
+      cancelDemo();
+      selApply(+this.getAttribute("data-i"));
+    });
+  }
+  function setRunLabel() {
+    runBtn.textContent = running ? "⏸ Pause" : "▶ Run";
+    runBtn.classList.toggle("on", running);
+  }
+  runBtn.addEventListener("click", function () {
+    cancelDemo();
+    running = !running;
+    setRunLabel();
+  });
+  document.getElementById("resetBtn").addEventListener("click", function () {
+    cancelDemo();
+    simSec = 0; units = 0;
+    uiNow();
+  });
+  /* tap the appliance to switch it on / off */
+  Sim.pointer(cvs, {
+    down: function (p) {
+      const dx = p.x - lay.ax, dy = p.y - lay.cy;
+      if (dx * dx + dy * dy <= 55 * 55) {
+        cancelDemo();
+        running = !running;
+        setRunLabel();
+      }
+    }
+  });
+
+  document.getElementById("preset").addEventListener("click", function () {
+    simSec = 0; units = 0;
+    selApply(3);
+    running = true;
+    boost = 3;                                     // 1 sim hour in ~2 s
+    demo = { phase: 0, gU: 0, gC: 0 };
+    caption = "Fast-forwarding the geyser through 1 full hour…";
+    setRunLabel();
+  });
+
+  /* ---------- colour helpers ---------- */
+  const hexCache = {};
+  function px3(hex) {
+    let c = hexCache[hex];
+    if (!c) {
+      let h = hex.replace("#", "");
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      c = hexCache[hex] = [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    }
+    return c;
+  }
+  function rgba(hex, a) {
+    const c = px3(hex);
+    return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
+  }
+  function mix(h1, h2, k) {
+    const a = px3(h1), b = px3(h2);
+    k = Sim.clamp(k, 0, 1);
+    return "rgb(" + Math.round(a[0] + (b[0] - a[0]) * k) + "," +
+                    Math.round(a[1] + (b[1] - a[1]) * k) + "," +
+                    Math.round(a[2] + (b[2] - a[2]) * k) + ")";
+  }
+  function fontPx(px, wgt) { return (wgt || 600) + " " + px + "px " + FF; }
+
+  function clockStr() {
+    const s = Math.floor(simSec);
+    const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
+    return (hh < 10 ? "0" : "") + hh + ":" + (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
+  }
+
+  /* ---------- scene drawing ---------- */
+  function drawSocket(c, x, y) {
+    Sim.rr(ctx, x - 20, y - 26, 40, 52, 8);
+    ctx.fillStyle = c.surface2;
+    ctx.fill();
+    ctx.strokeStyle = c.border;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = c.muted;
+    ctx.beginPath(); ctx.arc(x, y - 10, 4, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x - 8, y + 8, 3, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 8, y + 8, 3, 0, 7); ctx.fill();
+    ctx.textAlign = "center";
+    ctx.font = fontPx(10);
+    ctx.fillStyle = c.muted;
+    ctx.fillText("Indian mains", x, y + 42);
+    ctx.font = fontPx(12.5, 700);
+    ctx.fillStyle = c.accent;
+    ctx.fillText("230 V", x, y + 57);
+    ctx.textAlign = "left";
+  }
+
+  function drawWire(c, x1, x2, y) {
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
+    ctx.fillStyle = c.surface2;               // plug nub at the socket
+    ctx.strokeStyle = c.muted;
+    Sim.rr(ctx, x1 - 4, y - 6, 10, 12, 3);
+    ctx.fill(); ctx.stroke();
+    /* current dots — speed ∝ I = P/V */
+    ctx.fillStyle = c.accent;
+    ctx.globalAlpha = running ? 0.95 : 0.15;
+    for (let i = 0; i < wireDots.length; i++) {
+      const px = x1 + 10 + wireDots[i] * (x2 - x1 - 14);
+      ctx.beginPath(); ctx.arc(px, y, 2.6, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawLED(c, ax, cy) {
+    if (running) {
+      const g = ctx.createRadialGradient(ax, cy - 8, 4, ax, cy - 8, 42);
+      g.addColorStop(0, rgba(c.warm, 0.55));
+      g.addColorStop(1, rgba(c.warm, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(ax, cy - 8, 42, 0, 7); ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(ax, cy - 8, 18, 0, 7);
+    ctx.fillStyle = running ? rgba(c.warm, 0.3) : c.surface2;
+    ctx.fill();
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = running ? c.warm : c.muted;
+    ctx.fillRect(ax - 6, cy - 13, 12, 3.5);
+    ctx.fillRect(ax - 6, cy - 7, 12, 3.5);
+    ctx.fillStyle = c.muted;
+    Sim.rr(ctx, ax - 8, cy + 9, 16, 12, 3);
+    ctx.fill();
+  }
+
+  function drawFan(c, ax, cy) {
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(ax, cy + 27); ctx.lineTo(ax, cy + 40);
+    ctx.moveTo(ax - 14, cy + 40); ctx.lineTo(ax + 14, cy + 40);
+    ctx.stroke();
+    ctx.strokeStyle = c.muted;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(ax, cy, 27, 0, 7); ctx.stroke();
+    ctx.save();
+    ctx.translate(ax, cy);
+    ctx.rotate(fanAng);
+    ctx.fillStyle = c.cool;
+    for (let k = 0; k < 3; k++) {
+      ctx.rotate(2.0944);
+      ctx.beginPath(); ctx.ellipse(13, 0, 12, 5, 0, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+    ctx.fillStyle = c.ink;
+    ctx.beginPath(); ctx.arc(ax, cy, 5, 0, 7); ctx.fill();
+  }
+
+  function drawIron(c, ax, cy) {
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(ax - 4, cy + 2, 17, Math.PI, 0); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(ax - 30, cy + 16);
+    ctx.lineTo(ax + 18, cy + 16);
+    ctx.quadraticCurveTo(ax + 34, cy + 16, ax + 26, cy + 2);
+    ctx.lineTo(ax - 30, cy + 2);
+    ctx.closePath();
+    ctx.fillStyle = c.surface2;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.strokeStyle = mix(c.muted, c.hot, heat);   // sole plate heats up
+    ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.moveTo(ax - 29, cy + 19); ctx.lineTo(ax + 27, cy + 19); ctx.stroke();
+  }
+
+  function drawGeyser(c, ax, cy) {
+    Sim.rr(ctx, ax - 22, cy - 32, 44, 58, 12);
+    ctx.fillStyle = c.surface2;
+    ctx.fill();
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.strokeStyle = c.muted;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(ax - 4, cy - 16, 5, 0, 7); ctx.stroke();
+    ctx.fillStyle = running ? c.hot : c.muted;     // indicator lamp
+    ctx.beginPath(); ctx.arc(ax + 11, cy - 16, 3, 0, 7); ctx.fill();
+    ctx.strokeStyle = c.muted;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(ax - 10, cy + 26); ctx.lineTo(ax - 10, cy + 40);
+    ctx.moveTo(ax + 10, cy + 26); ctx.lineTo(ax + 10, cy + 34); ctx.lineTo(ax + 18, cy + 34);
+    ctx.stroke();
+  }
+
+  function drawCoil(c, ax, y, coilLabel) {
+    if (heat > 0.04) {
+      const g = ctx.createRadialGradient(ax, y, 3, ax, y, 30 + 22 * heat);
+      g.addColorStop(0, rgba(c.hot, 0.3 * heat));
+      g.addColorStop(1, rgba(c.hot, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(ax, y, 30 + 22 * heat, 0, 7); ctx.fill();
+    }
+    const col = heat < 0.5 ? mix(c.ink, c.warm, heat * 2) : mix(c.warm, c.hot, (heat - 0.5) * 2);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(ax - 46, y);
+    ctx.lineTo(ax - 38, y);
+    const n = 8, seg = 76 / n;
+    for (let i = 0; i < n; i++)
+      ctx.lineTo(ax - 38 + seg * (i + 0.5), y + (i % 2 ? 6 : -6));
+    ctx.lineTo(ax + 38, y);
+    ctx.lineTo(ax + 46, y);
+    ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.font = fontPx(10);
+    ctx.fillStyle = c.muted;
+    ctx.fillText(coilLabel, ax, y + 19);
+    ctx.textAlign = "left";
+  }
+
+  function drawParticles(c, t) {
+    ctx.fillStyle = rgba(c.warm, 1);
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (p.life <= 0) continue;
+      const wob = Math.sin(t * 3 + p.seed) * 4;
+      ctx.globalAlpha = Math.min(0.5, p.life * 0.55 * heat);
+      ctx.beginPath(); ctx.arc(p.x + wob, p.y, 2.2, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawMeter(c, x, y, w2, h2) {
+    Sim.rr(ctx, x, y, w2, h2, 12);
+    ctx.fillStyle = c.surface;
+    ctx.fill();
+    ctx.strokeStyle = c.border;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.font = fontPx(10, 700);
+    ctx.fillStyle = c.muted;
+    ctx.fillText("ENERGY METER", x + 12, y + 17);
+    /* pulse LED — real Indian meters blink faster the more you burn */
+    const on = running && (blink % 1) < 0.5;
+    ctx.fillStyle = on ? c.hot : c.surface2;
+    ctx.strokeStyle = c.border;
+    ctx.beginPath(); ctx.arc(x + w2 - 16, y + 13, 4, 0, 7); ctx.fill(); ctx.stroke();
+    /* digits window (LCD look, same in both themes) */
+    Sim.rr(ctx, x + 10, y + 24, w2 - 20, 30, 6);
+    ctx.fillStyle = "#10151c";
+    ctx.fill();
+    let s = units.toFixed(3);
+    while (s.length < 7) s = "0" + s;
+    ctx.font = "700 17px " + MONO;
+    ctx.fillStyle = "#7ce38b";
+    ctx.textAlign = "right";
+    ctx.fillText(s, x + w2 - 52, y + 45);
+    ctx.font = "600 9px " + MONO;
+    ctx.fillStyle = "#4f9a5e";
+    ctx.fillText("units", x + w2 - 16, y + 45);
+    /* clock + cost */
+    ctx.textAlign = "left";
+    ctx.font = fontPx(10);
+    ctx.fillStyle = c.muted;
+    ctx.fillText("sim time", x + 12, y + 71);
+    ctx.fillText("cost so far", x + 12, y + 92);
+    ctx.textAlign = "right";
+    ctx.font = "600 12px " + MONO;
+    ctx.fillStyle = c.ink;
+    ctx.fillText(clockStr(), x + w2 - 12, y + 71);
+    ctx.font = fontPx(15, 700);
+    ctx.fillStyle = c.hot;
+    ctx.fillText("₹ " + Sim.fmt(units * tariff(), 2), x + w2 - 12, y + 94);
+    ctx.textAlign = "center";
+    ctx.font = fontPx(9.5);
+    ctx.fillStyle = c.muted;
+    ctx.fillText("@ ₹" + tariff().toFixed(1) + " per unit · 1 unit = 1 kWh", x + w2 / 2, y + h2 - 8);
+    ctx.textAlign = "left";
+  }
+
+  function wrap(txt, maxW) {
+    const words = txt.split(" ");
+    const lines = [];
+    let cur = "";
+    for (let i = 0; i < words.length; i++) {
+      const t = cur ? cur + " " + words[i] : words[i];
+      if (cur && ctx.measureText(t).width > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = t;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function drawCaption(c) {
+    const w = view.w, bh = CAPH - 10, y = view.h - CAPH + 4;
+    ctx.fillStyle = c.surface2;
+    Sim.rr(ctx, 8, y, w - 16, bh, 10);
+    ctx.fill();
+    ctx.strokeStyle = c.border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.font = fontPx(11.5);
+    const lines = wrap(caption || HINT, w - 48);
+    ctx.fillStyle = caption ? c.ink : c.muted;
+    ctx.textAlign = "center";
+    const lh = 14, n = Math.min(lines.length, 3);
+    const y0 = y + bh / 2 - (n - 1) * lh / 2 + 4;
+    for (let i = 0; i < n; i++) ctx.fillText(lines[i], w / 2, y0 + i * lh);
+    ctx.textAlign = "left";
+  }
+
+  /* ---------- main loop ---------- */
+  function draw(dt, t) {
+    if (dt < 0) dt = 0;      // guard: first rAF timestamp can precede loop start
+    const c = Sim.colors();
+    const w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+    const app = APPS[sel];
+
+    /* --- simulated time & energy: H = Pt, 1 unit = 1 kWh --- */
+    if (running) {
+      const sdt = dt * 60 * MIN_PER_S * boost;      // sim seconds elapsed
+      simSec += sdt;
+      units += app.P / 1000 * sdt / 3600;           // kW × h
+      blink += dt * (1 + 6 * app.P / 2000);
+    }
+
+    /* --- demo state machine --- */
+    if (demo && simSec >= 3600) {
+      if (demo.phase === 0) {
+        demo.gU = units;
+        demo.gC = units * tariff();
+        simSec = 0; units = 0;
+        selApply(0);
+        demo.phase = 1;
+        caption = "Geyser, 1 hour: " + Sim.fmt(demo.gU, 2) + " units = ₹" + Sim.fmt(demo.gC, 2) +
+                  ". Now the LED for the same hour…";
+      } else {
+        const lC = units * tariff();
+        caption = "One hour each: geyser ₹" + Sim.fmt(demo.gC, 2) + " vs LED ₹" + Sim.fmt(lC, 2) +
+                  " — about " + Math.round(demo.gC / lC) + "× more. That's why the geyser rules your bill.";
+        demo = null;
+        boost = 1;
+        running = false;
+        setRunLabel();
+      }
+    }
+
+    /* --- eased animations --- */
+    const target = running ? Math.sqrt(app.P / 2000) : 0;
+    heat += (target - heat) * Math.min(1, dt * 1.6);
+    const wT = (running && sel === 1) ? 11 : 0;
+    fanSpin += (wT - fanSpin) * Math.min(1, dt * 2.5);
+    fanAng += fanSpin * dt;
+
+    /* --- layout --- */
+    const narrow = w < 560;
+    const cy = narrow ? (h - CAPH) * 0.26 : (h - CAPH) * 0.44;
+    const sx = narrow ? 34 : 46;
+    const ax = narrow ? w * 0.62 : (w - 230) * 0.58;
+    lay.ax = ax; lay.cy = cy;
+    let mx, my2, mw, mh;
+    if (narrow) {
+      mw = Math.min(300, w - 24); mh = 112;
+      mx = (w - mw) / 2; my2 = cy + 108;
+    } else {
+      mw = 196; mh = 118;
+      mx = w - mw - 14; my2 = 14;
+    }
+
+    /* --- current dots on the supply wire, speed ∝ I --- */
+    if (running) {
+      const I = app.P / V;
+      const len = ax - 50 - (sx + 22);
+      if (len > 20) {
+        const d = I * 14 * dt / len;
+        for (let i = 0; i < wireDots.length; i++) wireDots[i] = (wireDots[i] + d) % 1;
+      }
+    }
+
+    /* --- particles --- */
+    const coilY = cy + 56;
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (p.life > 0) {
+        p.life -= dt * 0.55;
+        p.y -= dt * (18 + 16 * heat);
+      } else if (running && heat > 0.06 && Math.random() < heat * 0.12) {
+        p.x = ax + (Math.random() * 64 - 32);
+        p.y = coilY - 4;
+        p.life = 1;
+      }
+    }
+
+    /* --- scene --- */
+    drawWire(c, sx + 20, ax - 48, cy);
+    drawSocket(c, sx, cy);
+    drawParticles(c, t);
+    drawCoil(c, ax, coilY, app.coil);
+    if (sel === 0) drawLED(c, ax, cy);
+    else if (sel === 1) drawFan(c, ax, cy);
+    else if (sel === 2) drawIron(c, ax, cy);
+    else drawGeyser(c, ax, cy);
+    ctx.textAlign = "center";
+    ctx.font = fontPx(11.5, 700);
+    ctx.fillStyle = c.ink;
+    ctx.fillText(app.name + " · " + app.P + " W", ax, cy - 44);
+    ctx.textAlign = "left";
+
+    drawMeter(c, mx, my2, mw, mh);
+
+    /* live worked example (wide screens only — panel covers it on phones) */
+    if (!narrow) {
+      const I = app.P / V;
+      const Rv = V * V / app.P;
+      ctx.textAlign = "center";
+      ctx.font = fontPx(12.5);
+      ctx.fillStyle = c.muted;
+      ctx.fillText("P = " + app.P + " W   →   I = P/V = " + (I < 1 ? Sim.fmt(I, 3) : Sim.fmt(I, 2)) +
+                   " A   ·   R = V²/P = " + Sim.fmt(Rv, Rv >= 100 ? 0 : 1) + " Ω",
+                   (w - 230) / 2 + 10, h - CAPH - 18);
+      ctx.textAlign = "left";
+    }
+
+    drawCaption(c);
+
+    /* --- throttled DOM readout refresh --- */
+    uiT += dt;
+    if (uiT > 0.15) { uiT = 0; uiNow(); }
+  }
+
+  selApply(sel);
+  setRunLabel();
+  uiNow();
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

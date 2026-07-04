@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magnetism &amp; Motors — Physics Lab</title>
+<meta name="description" content="Interactive magnetism simulation: field lines around wires and solenoids, a working DC motor with commutator, and a hand-cranked AC generator. CBSE Class 10.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Magnetism &amp; Motors</h1>
+  <span class="chip c10">Class 10</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <div class="btn-row" role="tablist" aria-label="Choose a scene">
+      <div class="seg">
+        <button class="btn on" id="scn0">Field lines</button>
+        <button class="btn" id="scn1">Motor</button>
+        <button class="btn" id="scn2">Generator</button>
+      </div>
+    </div>
+
+    <canvas id="stage" aria-label="Magnetism scene: field lines around a wire or solenoid, a DC motor, or an AC generator with a live EMF graph"></canvas>
+
+    <div class="controls">
+      <div class="ctl" id="ctlSub">
+        <div class="lab"><label>Conductor</label></div>
+        <div class="seg">
+          <button class="btn on" id="sub0">Straight wire</button>
+          <button class="btn" id="sub1">Solenoid</button>
+        </div>
+      </div>
+      <div class="ctl" id="ctlWireI">
+        <div class="lab"><label for="wireI">Current I</label><output id="wireIOut"></output></div>
+        <input type="range" id="wireI" min="1" max="10" step="0.1" value="6">
+      </div>
+      <div class="ctl" id="ctlMotI" hidden>
+        <div class="lab"><label for="motI">Current I</label><output id="motIOut"></output></div>
+        <input type="range" id="motI" min="0" max="10" step="0.1" value="5">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="presetBtn">▶ Show me: the motor in action</button>
+      <button class="btn" id="revBtn">Reverse current</button>
+      <button class="btn" id="autoBtn" hidden>Auto-crank</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>Push a current through a wire and a magnetic field appears around it — that was Oersted's surprise. Spin a coil inside a magnetic field and a current appears — that was Faraday's. Electricity and magnetism are two faces of one thing.</p>
+      <p>A <b>motor</b> and a <b>generator</b> are the same machine run in opposite directions: the motor turns current into motion, the generator turns motion into current.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">F = B·I·L<br>EMF = −ΔΦ/Δt<br>B<sub>wire</sub> = μ₀I / 2πr</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout" id="roB"><div class="k">B at compass</div><div class="v" id="rB">—</div></div>
+        <div class="readout" id="roR"><div class="k">Distance r</div><div class="v" id="rR">—</div></div>
+        <div class="readout" id="roF" hidden><div class="k">Force / arm</div><div class="v" id="rF">—</div></div>
+        <div class="readout" id="roRPM" hidden><div class="k">Speed</div><div class="v" id="rRPM">—</div></div>
+        <div class="readout" id="roEMF" hidden><div class="k">Induced EMF</div><div class="v" id="rEMF">—</div></div>
+        <div class="readout" id="roSpd" hidden><div class="k">Crank speed</div><div class="v" id="rSpd">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> in Generator mode, crank slowly, then as fast as you can — the wave grows <i>taller</i> AND squeezes <i>closer together</i>. Now stop cranking. Why does the bulb die instantly, however strong the magnet is?</div>
+    </section>
+    <section>
+      <h2>Where you see it</h2>
+      <p>Many bicycles in India carry a small <b>dynamo</b> pressed against the wheel rim. Pedalling spins a magnet inside a coil — exactly your Generator scene — and the headlamp glows. Pedal faster: brighter lamp. Stop at a signal: the lamp goes dark.</p>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var view = Sim.canvas(document.getElementById("stage"), { aspect: 4 / 3, maxH: 520 });
+  var ctx = view.ctx;
+  var FONT = getComputedStyle(document.body).fontFamily;
+  var PI = Math.PI, TAU = 2 * PI;
+
+  /* ---------------- state ---------------- */
+  var scene = 0;              // 0 field lines, 1 motor, 2 generator
+  var sub = 0;                // 0 straight wire, 1 solenoid
+  var wireSign = 1;           // +1 = current out of the screen
+  var batSign = 1;            // motor battery polarity
+  var simT = 0;
+
+  var compX = -1, compY = -1, dragC = false, compassTouched = false;
+
+  /* motor */
+  var phiM = -0.6, omM = 0, prevCosPos = true, frozen = false;
+  var flashT = 0, lastFlipCap = -99;
+
+  /* generator */
+  var phiG = -0.6, omG = 0, autoCrank = false, dragG = false;
+  var pendG = 0, lastAngG = 0, emf = 0, gDefl = 0;
+  var chartBuf = new Float32Array(720), chartHead = 0;
+
+  /* preset state machine */
+  var pPhase = 0, pT = 0, pFlips = 0;
+
+  /* caption */
+  var capMsg = "", capT = 0, capLines = null, capForW = 0;
+  function caption(m, d) { capMsg = m; capT = d; capLines = null; }
+
+  /* ---------------- controls ---------------- */
+  var wireI = Sim.slider("wireI", function (v) { return v.toFixed(1) + " A"; });
+  var motI  = Sim.slider("motI",  function (v) { return v.toFixed(1) + " A"; });
+  motI.el.addEventListener("input", function () { pPhase = 0; frozen = false; });
+
+  var sceneBtns = [document.getElementById("scn0"), document.getElementById("scn1"), document.getElementById("scn2")];
+  var subBtns = [document.getElementById("sub0"), document.getElementById("sub1")];
+  var ctlSub = document.getElementById("ctlSub"), ctlWireI = document.getElementById("ctlWireI"), ctlMotI = document.getElementById("ctlMotI");
+  var revBtn = document.getElementById("revBtn"), autoBtn = document.getElementById("autoBtn"), presetBtn = document.getElementById("presetBtn");
+  var roB = document.getElementById("roB"), roR = document.getElementById("roR"),
+      roF = document.getElementById("roF"), roRPM = document.getElementById("roRPM"),
+      roEMF = document.getElementById("roEMF"), roSpd = document.getElementById("roSpd");
+  var rB = document.getElementById("rB"), rR = document.getElementById("rR"), rF = document.getElementById("rF"),
+      rRPM = document.getElementById("rRPM"), rEMF = document.getElementById("rEMF"), rSpd = document.getElementById("rSpd");
+
+  function setScene(n, fromPreset) {
+    scene = n;
+    if (!fromPreset) { pPhase = 0; frozen = false; }
+    for (var i = 0; i < 3; i++) sceneBtns[i].classList.toggle("on", i === n);
+    ctlSub.hidden = n !== 0;
+    ctlWireI.hidden = n !== 0;
+    ctlMotI.hidden = n !== 1;
+    revBtn.hidden = n === 2;
+    autoBtn.hidden = n !== 2;
+    roB.hidden = roR.hidden = n !== 0;
+    roF.hidden = roRPM.hidden = n !== 1;
+    roEMF.hidden = roSpd.hidden = n !== 2;
+    capT = 0;
+    if (n === 2) { chartBuf.fill(0); chartHead = 0; }
+  }
+  sceneBtns.forEach(function (b, i) { b.addEventListener("click", function () { setScene(i); }); });
+  subBtns.forEach(function (b, i) {
+    b.addEventListener("click", function () {
+      sub = i;
+      subBtns[0].classList.toggle("on", i === 0);
+      subBtns[1].classList.toggle("on", i === 1);
+    });
+  });
+
+  revBtn.addEventListener("click", function () {
+    pPhase = 0; frozen = false;
+    if (scene === 0) { wireSign = -wireSign; caption("Current reversed — watch every arrow flip.", 1.6); }
+    else { batSign = -batSign; caption("Battery reversed — the forces flip, so it spins the other way.", 2.2); }
+  });
+
+  autoBtn.addEventListener("click", function () {
+    autoCrank = !autoCrank;
+    autoBtn.classList.toggle("on", autoCrank);
+    if (autoCrank) dragG = false;
+  });
+
+  presetBtn.addEventListener("click", function () {
+    setScene(1, true);
+    batSign = 1; phiM = -0.6; omM = 0; prevCosPos = true; frozen = false;
+    motI.set(0);
+    pPhase = 1; pT = 0; pFlips = 0;
+    caption("Watch: current ramps up, the coil starts to turn…", 2.2);
+  });
+
+  /* ---------------- pointer ---------------- */
+  Sim.pointer(view.el, {
+    down: function (p) {
+      if (scene === 0) {
+        dragC = true; compassTouched = true;
+        compX = Sim.clamp(p.x, 12, view.w - 12);
+        compY = Sim.clamp(p.y, 12, view.h - 12);
+      } else if (scene === 2) {
+        var g = genGeom();
+        if (p.y < g.chartTop) {
+          dragG = true; autoCrank = false; autoBtn.classList.remove("on");
+          lastAngG = Math.atan2(p.y - g.cy, p.x - g.cx);
+          pendG = 0;
+        }
+      }
+    },
+    move: function (p, e, isDown) {
+      if (dragC && isDown && scene === 0) {
+        compX = Sim.clamp(p.x, 12, view.w - 12);
+        compY = Sim.clamp(p.y, 12, view.h - 12);
+      }
+      if (dragG && scene === 2) {
+        var g = genGeom();
+        var a = Math.atan2(p.y - g.cy, p.x - g.cx);
+        var d = a - lastAngG;
+        while (d > PI) d -= TAU;
+        while (d < -PI) d += TAU;
+        pendG += d; lastAngG = a;
+      }
+    },
+    up: function () { dragC = false; dragG = false; }
+  });
+
+  /* ---------------- physics step ---------------- */
+  function step(dt) {
+    simT += dt;
+    if (capT > 0) capT -= dt;
+    if (flashT > 0) flashT -= dt;
+
+    /* --- preset "show me" state machine (motor) --- */
+    if (pPhase > 0 && scene !== 1) pPhase = 0;
+    if (pPhase === 1) {                            /* ramp current 0 -> 6 A */
+      pT += dt;
+      motI.set(Math.min(6, Math.round(pT * 40) / 10));
+      if (motI() >= 6) { pPhase = 2; pT = 0; }
+    } else if (pPhase === 3) {                     /* frozen at the flip */
+      pT += dt;
+      if (pT > 3.2) { frozen = false; pPhase = 4; pT = 0; }
+    } else if (pPhase === 4) {                     /* run, then reverse */
+      pT += dt;
+      if (pT > 1.6) {
+        batSign = -batSign;
+        caption("Now the battery is reversed → every force flips → the motor spins the OTHER way.", 3.2);
+        pPhase = 5; pT = 0;
+      }
+    } else if (pPhase === 5) {
+      pT += dt;
+      if (pT > 4.5) pPhase = 0;
+    }
+
+    /* --- motor --- */
+    if (scene === 1 && !frozen) {
+      var I = motI();
+      var cs = Math.cos(phiM);
+      var tq = -2.2 * I * Math.abs(cs) * batSign;   /* commutated torque: constant sign */
+      omM += (tq - 1.15 * omM) * dt;
+      phiM += omM * dt;
+      var nowPos = Math.cos(phiM) >= 0;
+      if (nowPos !== prevCosPos) {
+        prevCosPos = nowPos;
+        if (I > 0.15 && Math.abs(omM) > 0.3) {
+          flashT = 0.55;
+          if (pPhase === 2) {
+            pFlips++;
+            if (pFlips >= 4) {
+              frozen = true; pPhase = 3; pT = 0;
+              caption("PAUSED at the flip: the split ring just swapped brushes — current in the coil reverses, so the push keeps turning it the SAME way.", 3.4);
+            }
+          } else if (pPhase === 0 && simT - lastFlipCap > 8) {
+            lastFlipCap = simT;
+            caption("The commutator just reversed the current — that's why the coil keeps turning one way.", 2.6);
+          }
+        }
+      }
+    }
+
+    /* --- generator --- */
+    if (scene === 2) {
+      if (dragG) {
+        var inst = pendG / Math.max(dt, 1e-4);
+        omG = Sim.lerp(omG, Sim.clamp(inst, -45, 45), 0.5);
+        phiG += pendG;
+        pendG = 0;
+      } else if (autoCrank) {
+        omG += (10 - omG) * Math.min(1, dt * 2.5);
+        phiG += omG * dt;
+      } else {
+        omG -= omG * 0.65 * dt;                     /* friction: coast to a stop */
+        if (Math.abs(omG) < 0.02) omG = 0;
+        phiG += omG * dt;
+      }
+      emf = 0.095 * omG * Math.cos(phiG);           /* EMF ∝ ω sin(ωt) */
+      chartBuf[chartHead % 720] = emf;
+      chartHead++;
+      var target = Sim.clamp(emf / 1.4, -1, 1) * 0.96;   /* radians of needle swing */
+      gDefl += (target - gDefl) * Math.min(1, dt * 12);
+    }
+  }
+
+  /* ---------------- readouts (throttled) ---------------- */
+  var roT = 0;
+  function readouts(dt) {
+    roT += dt;
+    if (roT < 0.12) return;
+    roT = 0;
+    if (scene === 0) {
+      var f = fieldGeom(), d, Bt;
+      if (sub === 0) {
+        d = Math.max(20, Math.hypot(compX - f.cx, compY - f.cy));
+        Bt = 2e-7 * wireI() / (d / 1000);                       /* 1 px = 1 mm */
+        rB.textContent = Sim.fmt(Bt * 1e6, 1) + " µT";
+      } else {
+        d = Math.hypot(compX - f.cx, compY - f.cy);
+        Bt = solB(compX - f.cx, compY - f.cy, f).mag;
+        rB.textContent = Bt >= 1e-3 ? Sim.fmt(Bt * 1e3, 2) + " mT" : Sim.fmt(Bt * 1e6, 1) + " µT";
+      }
+      rR.textContent = Sim.fmt(d / 10, 1) + " cm";
+    } else if (scene === 1) {
+      rF.textContent = Sim.fmt(0.25 * motI() * 0.08, 3) + " N";
+      rRPM.textContent = Math.round(Math.abs(omM) * 60 / TAU) + " rpm";
+    } else {
+      rEMF.textContent = Sim.fmt(emf, 2) + " V";
+      rSpd.textContent = Sim.fmt(Math.abs(omG) / TAU, 1) + " rev/s";
+    }
+  }
+
+  /* ---------------- small drawing helpers ---------------- */
+  function sym(x, y, r, out, color) {              /* ⊙ / ⊗ current marks */
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
+    if (out) {
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(x, y, Math.max(1.8, r * 0.28), 0, TAU); ctx.fill();
+    } else {
+      var k = r * 0.55;
+      ctx.beginPath();
+      ctx.moveTo(x - k, y - k); ctx.lineTo(x + k, y + k);
+      ctx.moveTo(x + k, y - k); ctx.lineTo(x - k, y + k);
+      ctx.stroke();
+    }
+  }
+
+  function drawCompass(c, x, y, bx, by) {
+    var m = Math.hypot(bx, by) || 1;
+    var ux = bx / m, uy = by / m;
+    ctx.fillStyle = c.surface;
+    ctx.strokeStyle = c.border;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, 15, 0, TAU); ctx.fill(); ctx.stroke();
+    var px = -uy * 3.2, py = ux * 3.2, L = 11;
+    ctx.fillStyle = c.hot;                          /* north (red) half points along B */
+    ctx.beginPath(); ctx.moveTo(x + ux * L, y + uy * L); ctx.lineTo(x + px, y + py); ctx.lineTo(x - px, y - py); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = c.muted;
+    ctx.beginPath(); ctx.moveTo(x - ux * L, y - uy * L); ctx.lineTo(x + px, y + py); ctx.lineTo(x - px, y - py); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = c.ink;
+    ctx.beginPath(); ctx.arc(x, y, 2, 0, TAU); ctx.fill();
+    if (!compassTouched) {
+      ctx.fillStyle = c.muted;
+      ctx.font = "600 10.5px " + FONT;
+      ctx.textAlign = "center";
+      ctx.fillText("compass — drag me", x, y + 30);
+      ctx.textAlign = "left";
+    }
+  }
+
+  function hint(c, text, y) {
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 11.5px " + FONT;
+    ctx.textAlign = "center";
+    ctx.fillText(text, view.w / 2, y);
+    ctx.textAlign = "left";
+  }
+
+  function spinArrow(c, cx, cy, R, om) {
+    if (Math.abs(om) < 0.4) return;
+    var dir = om > 0 ? 1 : -1;
+    var a0 = -PI / 2 - dir * 0.6, a1 = -PI / 2 + dir * 0.6;
+    ctx.strokeStyle = c.muted; ctx.fillStyle = c.muted; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, R, Math.min(a0, a1), Math.max(a0, a1)); ctx.stroke();
+    var hx = cx + R * Math.cos(a1), hy = cy + R * Math.sin(a1);
+    var tx = -Math.sin(a1) * dir, ty = Math.cos(a1) * dir;
+    Sim.arrow(ctx, hx - tx * 6, hy - ty * 6, hx + tx * 5, hy + ty * 5, 8);
+  }
+
+  function drawCaption(c, w) {
+    if (capT <= 0 || !capMsg) return;
+    ctx.font = "600 12.5px " + FONT;
+    if (!capLines || capForW !== w) {
+      capLines = wrapText(capMsg, Math.min(w - 36, 560));
+      capForW = w;
+    }
+    var lh = 17, bh = capLines.length * lh + 13, bw = 0, i;
+    for (i = 0; i < capLines.length; i++) bw = Math.max(bw, ctx.measureText(capLines[i]).width);
+    bw += 24;
+    var x = (w - bw) / 2, y = 8;
+    ctx.globalAlpha = Math.min(1, capT / 0.3);
+    ctx.fillStyle = c.accent;
+    Sim.rr(ctx, x, y, bw, bh, 10); ctx.fill();
+    ctx.fillStyle = c.dark ? "#0d1220" : "#ffffff";
+    ctx.textAlign = "center";
+    for (i = 0; i < capLines.length; i++) ctx.fillText(capLines[i], w / 2, y + 15 + i * lh);
+    ctx.textAlign = "left";
+    ctx.globalAlpha = 1;
+  }
+  function wrapText(text, maxW) {
+    var words = text.split(" "), lines = [], cur = "";
+    for (var i = 0; i < words.length; i++) {
+      var t = cur ? cur + " " + words[i] : words[i];
+      if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = words[i]; }
+      else cur = t;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  /* ================================================================
+     SCENE 1 — FIELD LINES
+     ================================================================ */
+  function fieldGeom() {
+    return { cx: view.w * 0.5, cy: view.h * 0.47 };
+  }
+
+  /* B direction+magnitude of solenoid model (uniform inside, dipole outside) */
+  function solDims() {
+    var w = view.w, h = view.h;
+    return { sw: Math.min(w * 0.62, 360), sh: Math.min(h * 0.36, 130) };
+  }
+  function solB(dx, dy, f) {
+    var d = solDims(), s = wireSign;
+    var Bin = 4e-7 * PI * 1200 * wireI();           /* µ0 n I, n = 1200 turns/m */
+    if (Math.abs(dx) < d.sw / 2 && Math.abs(dy) < d.sh / 2)
+      return { x: s, y: 0, mag: Bin };
+    /* dipole, physical coords (Y up): m along ±X */
+    var X = dx, Y = -dy;
+    var r = Math.max(20, Math.hypot(X, Y));
+    var rx = X / r, ry = Y / r;
+    var mr = s * rx;
+    var BX = 3 * mr * rx - s, BY = 3 * mr * ry;
+    var d0 = d.sw / 2 / 1000;                        /* px→m, 1 px = 1 mm */
+    var km = 0.25 * Bin * d0 * d0 * d0;
+    var rm = r / 1000;
+    return { x: BX, y: -BY, mag: km * Math.hypot(BX, BY) / (rm * rm * rm) };
+  }
+
+  function drawField(c) {
+    var w = view.w, h = view.h, f = fieldGeom();
+    if (compX < 0) { compX = f.cx + Math.min(w, h) * 0.30; compY = f.cy - Math.min(w, h) * 0.18; }
+
+    if (sub === 0) drawWireScene(c, w, h, f);
+    else drawSolenoidScene(c, w, h, f);
+
+    hint(c, sub === 0
+      ? "Right-hand thumb rule: thumb = current, curled fingers = field"
+      : "Curl right-hand fingers along the current — thumb points to the N pole",
+      h - 10);
+  }
+
+  function drawWireScene(c, w, h, f) {
+    var I = wireI(), s = wireSign;
+    var cx = f.cx, cy = f.cy;
+    var maxR = Math.min(w, h) * 0.44;
+    var n = 4 + Math.floor(I * 0.4);                 /* more current → more circles */
+
+    for (var i = 1; i <= n; i++) {
+      var r = 26 + (maxR - 26) * i / n;
+      var strength = (I / 10) * (60 / r);
+      ctx.strokeStyle = c.cool;
+      ctx.fillStyle = c.cool;
+      ctx.globalAlpha = Sim.clamp(strength * 1.7 + 0.1, 0.12, 0.9);
+      ctx.lineWidth = Sim.clamp(0.8 + strength * 4, 1, 3.2);
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke();
+      /* direction arrows: tangent = s·(dy, −dx)/r  (current OUT → anticlockwise) */
+      for (var a = PI / 4; a < TAU; a += PI / 2) {
+        var px = cx + r * Math.cos(a), py = cy + r * Math.sin(a);
+        var tx = s * Math.sin(a), ty = -s * Math.cos(a);
+        Sim.arrow(ctx, px - tx * 6, py - ty * 6, px + tx * 6, py + ty * 6, 8);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    /* r line to compass */
+    var d = Math.max(20, Math.hypot(compX - cx, compY - cy));
+    ctx.strokeStyle = c.muted;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(compX, compY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 11px " + FONT;
+    ctx.fillText("r", (cx + compX) / 2 + 6, (cy + compY) / 2 - 4);
+
+    /* the wire, end-on */
+    ctx.fillStyle = c.ink;
+    ctx.beginPath(); ctx.arc(cx, cy, 13, 0, TAU); ctx.fill();
+    sym(cx, cy, 7, s > 0, c.canvasBg);
+
+    /* label */
+    ctx.fillStyle = c.ink;
+    ctx.font = "700 13px " + FONT;
+    ctx.fillText("I = " + I.toFixed(1) + " A", 12, 22);
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 11.5px " + FONT;
+    ctx.fillText(s > 0 ? "current OUT of the screen (dot)" : "current INTO the screen (cross)", 12, 38);
+    ctx.fillText(s > 0 ? "field circles: anticlockwise" : "field circles: clockwise", 12, 53);
+
+    /* compass follows local B: dir = s·(dy, −dx) */
+    var dx = compX - cx, dy = compY - cy;
+    drawCompass(c, compX, compY, s * dy, -s * dx);
+  }
+
+  function drawSolenoidScene(c, w, h, f) {
+    var s = wireSign, d = solDims();
+    var cx = f.cx, cy = f.cy, sw = d.sw, sh = d.sh;
+    var xL = cx - sw / 2, xR = cx + sw / 2;
+
+    /* ---- field lines (behind the coil) ---- */
+    ctx.strokeStyle = c.cool; ctx.fillStyle = c.cool;
+    ctx.lineWidth = 1.6;
+    /* inside: straight, dense, toward N end */
+    for (var j = -1; j <= 1; j++) {
+      var y = cy + j * sh * 0.26;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.moveTo(xL + 6, y); ctx.lineTo(xR - 6, y); ctx.stroke();
+      for (var k = -1; k <= 1; k += 2) {
+        var ax = cx + k * sw * 0.22;
+        Sim.arrow(ctx, ax - s * 6, y, ax + s * 6, y, 8);
+      }
+    }
+    /* outside: big return loops (bar-magnet-like), drawn N-end → S-end */
+    ctx.globalAlpha = 0.55;
+    for (var lk = 1; lk <= 2; lk++) {
+      for (var vs = -1; vs <= 1; vs += 2) {          /* top and bottom */
+        var y0 = cy + vs * sh * 0.18 * lk;
+        var cpy = cy + vs * (sh / 2 + h * 0.10 * lk);
+        var cpx = 26 + w * 0.06 * lk;
+        ctx.beginPath();
+        ctx.moveTo(xR + 6, y0);
+        ctx.bezierCurveTo(xR + cpx, cpy, xL - cpx, cpy, xL - 6, y0);
+        ctx.stroke();
+        /* arrow at the loop's mid point (bezier t=0.5 → y = 0.25·y0 + 0.75·cpy).
+           Field outside runs N→S: right→left over the top when s=+1 (N right). */
+        var my = 0.25 * y0 + 0.75 * cpy;
+        Sim.arrow(ctx, cx + s * 7, my, cx - s * 7, my, 8);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    /* ---- the coil: turn cross-sections top & bottom ---- */
+    var N = 7, sp = sw / (N - 1);
+    ctx.strokeStyle = c.warm;
+    ctx.globalAlpha = 0.4;
+    ctx.lineWidth = 1.5;
+    for (var i = 0; i < N - 1; i++) {                /* winding hints */
+      ctx.beginPath();
+      ctx.moveTo(xL + i * sp, cy + sh / 2);
+      ctx.lineTo(xL + (i + 1) * sp, cy - sh / 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    for (i = 0; i < N; i++) {
+      var x = xL + i * sp;
+      ctx.fillStyle = c.surface;
+      ctx.beginPath(); ctx.arc(x, cy - sh / 2, 8, 0, TAU); ctx.fill();
+      sym(x, cy - sh / 2, 8, s > 0, c.warm);          /* top: ⊙ when s=+1 */
+      ctx.fillStyle = c.surface;
+      ctx.beginPath(); ctx.arc(x, cy + sh / 2, 8, 0, TAU); ctx.fill();
+      sym(x, cy + sh / 2, 8, s < 0, c.warm);          /* bottom: opposite */
+    }
+
+    /* ---- N / S pole labels (⊙ top + ⊗ bottom → N on the RIGHT) ---- */
+    ctx.font = "800 22px " + FONT;
+    ctx.textAlign = "center";
+    ctx.fillStyle = s > 0 ? c.hot : c.cool;
+    ctx.fillText(s > 0 ? "N" : "S", xR + 26, cy + 8);
+    ctx.fillStyle = s > 0 ? c.cool : c.hot;
+    ctx.fillText(s > 0 ? "S" : "N", xL - 26, cy + 8);
+    ctx.textAlign = "left";
+
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 11.5px " + FONT;
+    ctx.fillText("I = " + wireI().toFixed(1) + " A — a solenoid acts like a bar magnet", 12, 22);
+
+    /* compass */
+    var B = solB(compX - cx, compY - cy, f);
+    drawCompass(c, compX, compY, B.x, B.y);
+  }
+
+  /* ================================================================
+     SCENE 2 — MOTOR
+     ================================================================ */
+  function motGeom() {
+    var w = view.w, h = view.h;
+    var gapHalf = Math.min(w * 0.26, 200);
+    return {
+      cx: w * 0.5, cy: h * 0.40, gapHalf: gapHalf,
+      pw: Math.min(w * 0.15, 80), ph: h * 0.46,
+      rc: gapHalf * 0.62
+    };
+  }
+
+  function drawPoles(c, g, cy, ph) {
+    /* N left, S right → B points left→right */
+    var lx = g.cx - g.gapHalf - g.pw, rx = g.cx + g.gapHalf;
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = c.hot;   ctx.globalAlpha = 0.12;
+    Sim.rr(ctx, lx, cy - ph / 2, g.pw, ph, 6); ctx.fill();
+    ctx.fillStyle = c.cool;
+    Sim.rr(ctx, rx, cy - ph / 2, g.pw, ph, 6); ctx.fill();
+    ctx.globalAlpha = 0.6;
+    ctx.strokeStyle = c.hot;  Sim.rr(ctx, lx, cy - ph / 2, g.pw, ph, 6); ctx.stroke();
+    ctx.strokeStyle = c.cool; Sim.rr(ctx, rx, cy - ph / 2, g.pw, ph, 6); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.font = "800 24px " + FONT;
+    ctx.textAlign = "center";
+    ctx.fillStyle = c.hot;  ctx.fillText("N", lx + g.pw / 2, cy + 8);
+    ctx.fillStyle = c.cool; ctx.fillText("S", rx + g.pw / 2, cy + 8);
+    ctx.textAlign = "left";
+
+    /* field B arrows across the gap, N → S */
+    ctx.strokeStyle = c.cool; ctx.fillStyle = c.cool;
+    ctx.globalAlpha = 0.45; ctx.lineWidth = 1.5;
+    for (var j = -1; j <= 1; j++) {
+      var y = cy + j * ph * 0.3;
+      Sim.arrow(ctx, g.cx - g.gapHalf + 8, y, g.cx + g.gapHalf - 8, y, 8);
+    }
+    ctx.globalAlpha = 1;
+    ctx.font = "700 12px " + FONT;
+    ctx.fillText("B", g.cx - g.gapHalf + 12, cy - ph * 0.3 - 6);
+  }
+
+  function drawMotor(c) {
+    var w = view.w, h = view.h, g = motGeom();
+    var I = motI();
+    drawPoles(c, g, g.cy, g.ph);
+
+    var a1x = g.cx + g.rc * Math.cos(phiM), a1y = g.cy + g.rc * Math.sin(phiM);
+    var a2x = g.cx - g.rc * Math.cos(phiM), a2y = g.cy - g.rc * Math.sin(phiM);
+    /* commutator gives arm1 out-of-page current when it is on the right */
+    var c1 = (Math.cos(phiM) >= 0 ? 1 : -1) * batSign;
+
+    /* coil edge-on + shaft */
+    ctx.strokeStyle = c.accent;
+    ctx.globalAlpha = 0.8; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(a1x, a1y); ctx.lineTo(a2x, a2y); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c.surface; ctx.strokeStyle = c.muted; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(g.cx, g.cy, 5, 0, TAU); ctx.fill(); ctx.stroke();
+
+    /* arms (cross-sections) with current marks */
+    ctx.fillStyle = c.surface; ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(a1x, a1y, 12, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(a2x, a2y, 12, 0, TAU); ctx.fill(); ctx.stroke();
+    if (I > 0.05) {
+      sym(a1x, a1y, 7, c1 > 0, c.accent);
+      sym(a2x, a2y, 7, c1 < 0, c.accent);
+    }
+    /* arm labels, pushed radially outward */
+    ctx.fillStyle = c.muted;
+    ctx.font = "700 11px " + FONT;
+    ctx.textAlign = "center";
+    ctx.fillText("AB", g.cx + (g.rc + 24) * Math.cos(phiM), g.cy + (g.rc + 24) * Math.sin(phiM) + 4);
+    ctx.fillText("CD", g.cx - (g.rc + 24) * Math.cos(phiM), g.cy - (g.rc + 24) * Math.sin(phiM) + 4);
+    ctx.textAlign = "left";
+
+    /* force arrows: F = IL×B → ⊙ arm pushed UP, ⊗ arm pushed DOWN */
+    if (I > 0.05) {
+      var len = 14 + I * 4.5;
+      ctx.strokeStyle = c.accent2; ctx.fillStyle = c.accent2; ctx.lineWidth = 3;
+      Sim.arrow(ctx, a1x, a1y - c1 * 15, a1x, a1y - c1 * (15 + len), 9);
+      Sim.arrow(ctx, a2x, a2y + c1 * 15, a2x, a2y + c1 * (15 + len), 9);
+      ctx.font = "700 12px " + FONT;
+      ctx.fillText("F", a1x + 8, a1y - c1 * (15 + len * 0.6));
+      ctx.fillText("F", a2x + 8, a2y + c1 * (15 + len * 0.6) + 4);
+    }
+    spinArrow(c, g.cx, g.cy, g.rc + 34, omM);
+
+    /* ---- commutator (split ring) + brushes + battery ---- */
+    var ccy = g.cy + g.rc + Math.max(30, h * 0.085), ringR = 14;
+    var gapA = 0.5;                                  /* gaps sit at phi ± 90° */
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = c.warm;
+    ctx.beginPath(); ctx.arc(g.cx, ccy, ringR, phiM - PI / 2 + gapA, phiM + PI / 2 - gapA); ctx.stroke();
+    ctx.strokeStyle = c.muted;
+    ctx.beginPath(); ctx.arc(g.cx, ccy, ringR, phiM + PI / 2 + gapA, phiM + 3 * PI / 2 - gapA); ctx.stroke();
+    /* flash the flip */
+    var fl = frozen && pPhase === 3 ? 0.5 + 0.3 * Math.sin(simT * 7) : flashT * 1.5;
+    if (fl > 0) {
+      ctx.strokeStyle = c.hot; ctx.lineWidth = 3;
+      ctx.globalAlpha = Sim.clamp(fl, 0, 1);
+      ctx.beginPath(); ctx.arc(g.cx, ccy, ringR + 8, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    /* brushes left & right */
+    ctx.fillStyle = c.ink;
+    ctx.fillRect(g.cx - ringR - 12, ccy - 7, 9, 14);
+    ctx.fillRect(g.cx + ringR + 3, ccy - 7, 9, 14);
+    ctx.font = "700 12px " + FONT;
+    ctx.fillStyle = c.muted;
+    ctx.textAlign = "center";
+    ctx.fillText(batSign > 0 ? "+" : "−", g.cx + ringR + 24, ccy + 4);
+    ctx.fillText(batSign > 0 ? "−" : "+", g.cx - ringR - 24, ccy + 4);
+    ctx.font = "600 10.5px " + FONT;
+    ctx.fillText("split-ring commutator", g.cx, ccy + ringR + 16);
+    ctx.textAlign = "left";
+
+    /* battery + wires */
+    var by = h - 22;
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(g.cx - ringR - 8, ccy + 7); ctx.lineTo(g.cx - ringR - 8, by); ctx.lineTo(g.cx - 8, by);
+    ctx.moveTo(g.cx + ringR + 8, ccy + 7); ctx.lineTo(g.cx + ringR + 8, by); ctx.lineTo(g.cx + 8, by);
+    ctx.stroke();
+    ctx.beginPath();                                  /* battery plates */
+    ctx.moveTo(g.cx - 8, by - 12); ctx.lineTo(g.cx - 8, by + 12);
+    ctx.moveTo(g.cx + 8, by - 7);  ctx.lineTo(g.cx + 8, by + 7);
+    ctx.stroke();
+    ctx.fillStyle = c.muted;
+    ctx.font = "700 11px " + FONT;
+    ctx.fillText(batSign > 0 ? "−" : "+", g.cx - 16, by - 14);
+    ctx.fillText(batSign > 0 ? "+" : "−", g.cx + 11, by - 14);
+    ctx.fillText(I.toFixed(1) + " A", g.cx + 24, by + 4);
+
+    flemingInset(c, 8, h - Math.min(120, h * 0.34) - 8);
+    if (I < 0.05 && Math.abs(omM) < 0.3 && pPhase === 0)
+      hint(c, "Slide the current up — Fleming's left hand tells you which way each arm is pushed", 20);
+  }
+
+  function flemingInset(c, x, y) {
+    var s = Math.min(150, view.w * 0.38), ih = Math.min(120, view.h * 0.34);
+    ctx.fillStyle = c.surface;
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1.5;
+    Sim.rr(ctx, x, y, s, ih, 9); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = c.muted;
+    ctx.font = "700 9.5px " + FONT;
+    ctx.textAlign = "center";
+    ctx.fillText("FLEMING'S LEFT HAND", x + s / 2, y + 14);
+    ctx.textAlign = "left";
+    var ox = x + s * 0.3, oy = y + ih * 0.62;
+    ctx.lineWidth = 2.5;
+    /* Force — thumb, up */
+    ctx.strokeStyle = c.accent2; ctx.fillStyle = c.accent2;
+    Sim.arrow(ctx, ox, oy, ox, y + 24, 7);
+    ctx.font = "600 9.5px " + FONT;
+    ctx.fillText("Force (thumb)", ox + 6, y + 30);
+    /* Field — forefinger, N→S */
+    ctx.strokeStyle = c.cool; ctx.fillStyle = c.cool;
+    Sim.arrow(ctx, ox, oy, x + s - 14, oy, 7);
+    ctx.fillText("Field (forefinger)", ox - 14, oy + 15);
+    /* Current — middle finger, out of the page */
+    sym(ox, oy, 6.5, true, c.accent);
+    ctx.fillStyle = c.accent;
+    ctx.fillText("Current (middle)", ox + 10, oy - 8);
+  }
+
+  /* ================================================================
+     SCENE 3 — GENERATOR
+     ================================================================ */
+  function genGeom() {
+    var w = view.w, h = view.h;
+    var chartH = Sim.clamp(h * 0.26, 56, 96);
+    var mainH = h - chartH - 4;
+    var gapHalf = Math.min(w * 0.26, 200);
+    return {
+      cx: w * 0.5, cy: mainH * 0.42, mainH: mainH, chartTop: h - chartH, chartH: chartH,
+      gapHalf: gapHalf, pw: Math.min(w * 0.15, 80), ph: mainH * 0.5,
+      rc: gapHalf * 0.52
+    };
+  }
+
+  function drawGen(c) {
+    var w = view.w, h = view.h, g = genGeom();
+    drawPoles(c, g, g.cy, g.ph);
+
+    var a1x = g.cx + g.rc * Math.cos(phiG), a1y = g.cy + g.rc * Math.sin(phiG);
+    var a2x = g.cx - g.rc * Math.cos(phiG), a2y = g.cy - g.rc * Math.sin(phiG);
+
+    ctx.strokeStyle = c.accent;
+    ctx.globalAlpha = 0.8; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(a1x, a1y); ctx.lineTo(a2x, a2y); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c.surface; ctx.strokeStyle = c.muted; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(g.cx, g.cy, 5, 0, TAU); ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = c.surface; ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(a1x, a1y, 12, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(a2x, a2y, 12, 0, TAU); ctx.fill(); ctx.stroke();
+    if (Math.abs(emf) > 0.04) {                       /* induced current marks */
+      sym(a1x, a1y, 7, emf > 0, c.accent2);
+      sym(a2x, a2y, 7, emf < 0, c.accent2);
+    }
+    spinArrow(c, g.cx, g.cy, g.rc + 30, omG);
+
+    /* slip rings + brushes */
+    var ry = g.cy + g.rc + Math.max(16, g.mainH * 0.07);
+    ctx.strokeStyle = c.warm; ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.arc(g.cx - 10, ry, 8, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(g.cx + 10, ry, 8, 0, TAU); ctx.stroke();
+    ctx.fillStyle = c.ink;
+    ctx.fillRect(g.cx - 14, ry + 9, 8, 10);
+    ctx.fillRect(g.cx + 6, ry + 9, 8, 10);
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 10.5px " + FONT;
+    ctx.fillText("slip rings → AC out", g.cx + 26, ry + 4);
+
+    /* circuit wires: brushes → galvanometer (left) and bulb (right) → join */
+    var gy = g.mainH - 24;
+    var gx = g.cx - Math.max(70, g.gapHalf * 0.7);
+    var bx = g.cx + Math.max(70, g.gapHalf * 0.7);
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(g.cx - 10, ry + 19); ctx.lineTo(g.cx - 10, gy); ctx.lineTo(gx + 16, gy);
+    ctx.moveTo(g.cx + 10, ry + 19); ctx.lineTo(g.cx + 10, gy); ctx.lineTo(bx - 14, gy);
+    ctx.moveTo(gx, gy + 16); ctx.lineTo(gx, gy + 22); ctx.lineTo(bx, gy + 22); ctx.lineTo(bx, gy + 13);
+    ctx.stroke();
+
+    /* galvanometer */
+    ctx.fillStyle = c.surface; ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(gx, gy, 16, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 1;
+    for (var tickA = -0.9; tickA <= 0.91; tickA += 0.45) {
+      ctx.beginPath();
+      ctx.moveTo(gx + 10 * Math.sin(tickA), gy - 10 * Math.cos(tickA));
+      ctx.lineTo(gx + 13 * Math.sin(tickA), gy - 13 * Math.cos(tickA));
+      ctx.stroke();
+    }
+    ctx.strokeStyle = c.hot; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy + 3);
+    ctx.lineTo(gx + 12 * Math.sin(gDefl), gy + 3 - 12 * Math.cos(gDefl));
+    ctx.stroke();
+    ctx.fillStyle = c.muted;
+    ctx.font = "700 10px " + FONT;
+    ctx.textAlign = "center";
+    ctx.fillText("G", gx - 24, gy + 4);
+
+    /* bulb, glow ∝ EMF² */
+    var glow = Math.min(1, emf * emf / 1.1);
+    if (glow > 0.02) {
+      ctx.fillStyle = c.warm;
+      ctx.globalAlpha = glow * 0.3;
+      ctx.beginPath(); ctx.arc(bx, gy, 26, 0, TAU); ctx.fill();
+      ctx.globalAlpha = glow * 0.25;
+      ctx.beginPath(); ctx.arc(bx, gy, 19, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = glow > 0.05 ? c.warm : c.surface;
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+    ctx.globalAlpha = glow > 0.05 ? 0.35 + glow * 0.65 : 1;
+    ctx.beginPath(); ctx.arc(bx, gy, 12, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(bx, gy, 12, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 1.5;
+    var kx = 12 * 0.55;
+    ctx.beginPath();
+    ctx.moveTo(bx - kx, gy - kx); ctx.lineTo(bx + kx, gy + kx);
+    ctx.moveTo(bx + kx, gy - kx); ctx.lineTo(bx - kx, gy + kx);
+    ctx.stroke();
+    ctx.fillStyle = c.muted;
+    ctx.fillText("bulb", bx + 29, gy + 4);
+    ctx.textAlign = "left";
+
+    if (Math.abs(omG) < 0.3 && !dragG)
+      hint(c, "Drag in circles around the coil to crank it — or press Auto-crank", 20);
+
+    drawChart(c, g);
+  }
+
+  function drawChart(c, g) {
+    var w = view.w, h = view.h;
+    var x0 = 34, x1 = w - 10;
+    var yc = g.chartTop + g.chartH * 0.5;
+    var amp = g.chartH * 0.5 - 10;
+
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0 - 6, g.chartTop); ctx.lineTo(x1, g.chartTop); ctx.stroke();
+    ctx.strokeStyle = c.grid;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(x0, yc); ctx.lineTo(x1, yc); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 10px " + FONT;
+    ctx.fillText("EMF", 6, g.chartTop + 13);
+    ctx.fillText("0", x0 - 12, yc + 3);
+    ctx.textAlign = "right";
+    ctx.fillText("time →", x1, h - 6);
+    ctx.textAlign = "left";
+
+    ctx.strokeStyle = c.accent2; ctx.lineWidth = 2;
+    ctx.beginPath();
+    var first = true;
+    for (var x = x1; x >= x0; x -= 2) {
+      var k = (x1 - x) >> 1;
+      var idx = chartHead - 1 - k;
+      if (idx < 0) break;
+      var y = yc - Sim.clamp(chartBuf[idx % 720] / 1.6, -1, 1) * amp;
+      if (first) { ctx.moveTo(x, y); first = false; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    if (chartHead > 0) {
+      ctx.fillStyle = c.hot;
+      ctx.beginPath();
+      ctx.arc(x1, yc - Sim.clamp(chartBuf[(chartHead - 1) % 720] / 1.6, -1, 1) * amp, 3.5, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  /* ---------------- main loop ---------------- */
+  function draw(dt) {
+    step(dt);
+    var c = Sim.colors();
+    var w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+    ctx.lineJoin = "round";
+    ctx.textAlign = "left";
+
+    if (compX >= 0) { compX = Sim.clamp(compX, 12, w - 12); compY = Sim.clamp(compY, 12, h - 12); }
+
+    if (scene === 0) drawField(c);
+    else if (scene === 1) drawMotor(c);
+    else drawGen(c);
+
+    drawCaption(c, w);
+    readouts(dt);
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

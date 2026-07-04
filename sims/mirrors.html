@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curved Mirrors — Physics Lab</title>
+<meta name="description" content="Interactive concave and convex mirror ray diagrams: drag the candle, watch the three NCERT construction rays and the image move live. CBSE Class 10.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+<style>
+  /* tiny sim-specific tweaks */
+  .seg-wrap { display: flex; align-items: center; min-height: 34px; }
+  .formula.live { margin-top: 8px; font-size: 13px; line-height: 1.8; }
+  #stage { cursor: grab; }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Curved Mirrors</h1>
+  <span class="chip c10">Class 10</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <canvas id="stage" aria-label="Ray diagram: a candle in front of a curved mirror with pole P, focus F and centre of curvature C. Drag the candle to move it; the three reflected rays and the image update live."></canvas>
+
+    <div class="controls">
+      <div class="ctl">
+        <div class="lab"><span>Mirror type</span></div>
+        <div class="seg seg-wrap" role="group" aria-label="Mirror type">
+          <button class="btn on" id="segConcave" aria-pressed="true">Concave</button>
+          <button class="btn" id="segConvex" aria-pressed="false">Convex</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <div class="lab"><label for="foc">Focal length f</label><output id="focOut"></output></div>
+        <input type="range" id="foc" min="10" max="30" step="1" value="15">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: walk from far away to the mirror</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <div id="expConcave">
+        <p>A <b>concave mirror</b> curves inwards, like the inside of a spoon. Rays that arrive parallel to the axis all bounce through one special point — the <b>focus F</b>. The centre of curvature <b>C</b> sits twice as far, at 2f.</p>
+        <p>Where the image forms depends entirely on where the candle stands. Far away → a small, upside-down image. Inside F → a big, upright image "behind" the mirror. That's why dentists and shaving mirrors are concave (used up close), and torches put the bulb at F to throw a straight beam.</p>
+      </div>
+      <div id="expConvex" style="display:none">
+        <p>A <b>convex mirror</b> bulges outwards, so it <i>spreads</i> rays apart. The spread-out rays only <i>appear</i> to meet behind the mirror — the image is <b>always virtual, upright and small</b>, tucked between P and F.</p>
+        <p>Because it shrinks everything, it squeezes a huge view into a small mirror. That's a vehicle side mirror — with the famous warning <i>"objects in mirror are closer than they appear"</i>.</p>
+      </div>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">1/v + 1/u = 1/f&nbsp;&nbsp;·&nbsp;&nbsp;m = −v/u</div>
+      <div class="formula live"><div id="eq1">—</div><div id="eq2">—</div></div>
+      <p style="font-size:12.5px;color:var(--muted);margin:8px 0 0">Sign rules (New Cartesian): measure from the pole P. In front of the mirror is <b>negative</b>, behind is <b>positive</b> — so a candle 30 cm in front has u = −30 cm.</p>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">Object u</div><div class="v" id="rU">—</div></div>
+        <div class="readout"><div class="k">Image v</div><div class="v" id="rV">—</div></div>
+        <div class="readout"><div class="k">Magnification m</div><div class="v" id="rM">—</div></div>
+        <div class="readout"><div class="k">Nature</div><div class="v" id="rN">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> drag the candle slowly from the far left towards the mirror. At <b>C</b> the image is exactly candle-sized. At <b>F</b> it races off to infinity. Inside F it flips upright and grows — the shaving-mirror trick!</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 1.66, maxH: 500 });
+  const ctx = view.ctx;
+  const FF = getComputedStyle(document.body).fontFamily;
+
+  const rU = document.getElementById("rU"), rV = document.getElementById("rV"),
+        rM = document.getElementById("rM"), rN = document.getElementById("rN"),
+        eq1 = document.getElementById("eq1"), eq2 = document.getElementById("eq2"),
+        segC = document.getElementById("segConcave"), segX = document.getElementById("segConvex"),
+        expC = document.getElementById("expConcave"), expX = document.getElementById("expConvex");
+
+  /* ---------- state ---------- */
+  let mode = "concave";
+  let d = 40;                       // object distance (cm, positive)
+  const H = 11;                     // candle height (cm)
+  let dragging = false, grabOff = 0, hasDragged = false;
+  let anim = null, animCap = null;
+  let lastSig = "";
+
+  const foc = Sim.slider("foc", v => v.toFixed(0) + " cm", function () {
+    anim = null; animCap = null;
+  });
+
+  /* ---------- world mapping (cm ↔ px). Pole at x = 0 cm; behind mirror is + ---------- */
+  const WL = -95, WR = 62;
+  let scale = 1, poleX = 0, axisY = 0;
+  function geom() {
+    scale = (view.w - 18) / (WR - WL);
+    poleX = 9 - WL * scale;
+    axisY = view.h * 0.56;
+  }
+  function X(cm) { return poleX + cm * scale; }
+  function Y(hcm) { return axisY - hcm * scale; }
+
+  /* ---------- physics: 1/v + 1/u = 1/f (New Cartesian) ---------- */
+  function fSigned() { return mode === "concave" ? -foc() : foc(); }
+  function phys() {
+    const u = -d, f = fSigned();
+    let v, inf = false;
+    if (Math.abs(u - f) < 0.45) { v = Infinity; inf = true; }
+    else v = u * f / (u - f);
+    const m = inf ? Infinity : -v / u;
+    return { u: u, f: f, v: v, m: m, inf: inf };
+  }
+
+  function caseLabel(p) {
+    const F = foc(), C = 2 * F;
+    if (mode === "convex")
+      return ["Convex mirror — object anywhere in front",
+              "Always virtual, erect, diminished — between P and F"];
+    if (p.inf)
+      return ["Object at F", "Reflected rays are parallel — image at infinity!"];
+    if (d < F)
+      return ["Object between F and P", "Image behind mirror: virtual, erect, magnified"];
+    if (Math.abs(d - C) <= 1.0)
+      return ["Object at C", "Image at C: real, inverted, same size"];
+    if (d > C) {
+      if (d >= 86 && Math.abs(Math.abs(p.v) - F) / F < 0.18)
+        return ["Object very far away (≈ infinity)", "Image at F: real, inverted, highly diminished"];
+      return ["Object beyond C", "Image between F and C: real, inverted, diminished"];
+    }
+    return ["Object between C and F", "Image beyond C: real, inverted, magnified"];
+  }
+
+  /* ---------- interaction ---------- */
+  function setD(nd) {
+    nd = Sim.clamp(nd, 3, 90);
+    const F = foc(), snaps = [F, 2 * F];
+    for (let i = 0; i < snaps.length; i++)
+      if (Math.abs(nd - snaps[i]) < 1.2) { nd = snaps[i]; break; }
+    d = nd;
+  }
+  Sim.pointer(view.el, {
+    down: function (pt) {
+      if (anim) { anim = null; animCap = null; }
+      const cx = X(-d), top = axisY - H * scale - 28;
+      if (Math.abs(pt.x - cx) < 34 && pt.y > top && pt.y < axisY + 30) {
+        dragging = true;
+        grabOff = pt.x - cx;
+      }
+    },
+    move: function (pt) {
+      if (dragging) setD((poleX - (pt.x - grabOff)) / scale);
+    },
+    up: function () {
+      if (dragging) { dragging = false; hasDragged = true; }
+    }
+  });
+
+  function setMode(m) {
+    mode = m; anim = null; animCap = null; lastSig = "";
+    segC.classList.toggle("on", m === "concave");
+    segX.classList.toggle("on", m === "convex");
+    segC.setAttribute("aria-pressed", m === "concave");
+    segX.setAttribute("aria-pressed", m === "convex");
+    expC.style.display = m === "concave" ? "" : "none";
+    expX.style.display = m === "convex" ? "" : "none";
+  }
+  segC.addEventListener("click", function () { setMode("concave"); });
+  segX.addEventListener("click", function () { setMode("convex"); });
+
+  /* ---------- "Show me" preset ---------- */
+  document.getElementById("preset").addEventListener("click", function () {
+    const F = foc(), C = 2 * F, conc = mode === "concave";
+    anim = { i: 0, t: 0, segs: [
+      { mv: [90, C], dur: 2.4 },
+      { pause: 1.5, cap: conc ? "At C: the image is also at C — same size, inverted"
+                              : "Even here the image stays behind the mirror — small and erect" },
+      { mv: [C, F], dur: 2.2 },
+      { pause: 1.9, cap: conc ? "At F: reflected rays are parallel — image at infinity!"
+                              : "Still virtual and small — a convex mirror never makes a real image" },
+      { mv: [F, 4.5], dur: 2.4 },
+      { pause: 2.4, cap: conc ? "Inside F: virtual, erect and magnified — a shaving mirror!"
+                              : "A tiny erect view of a huge scene — a vehicle side mirror" }
+    ]};
+    d = 90; hasDragged = true; animCap = null;
+  });
+  function stepAnim(dt) {
+    if (!anim) { animCap = null; return; }
+    const s = anim.segs[anim.i];
+    anim.t += dt;
+    if (s.mv) {
+      const q = Math.min(1, anim.t / s.dur);
+      const e = q * q * (3 - 2 * q);
+      d = Sim.lerp(s.mv[0], s.mv[1], e);
+      animCap = null;
+      if (q >= 1) { anim.i++; anim.t = 0; }
+    } else {
+      animCap = s.cap;
+      if (anim.t >= s.pause) { anim.i++; anim.t = 0; }
+    }
+    if (anim && anim.i >= anim.segs.length) { anim = null; animCap = null; }
+  }
+
+  /* ---------- DOM readouts (only when state actually changes) ---------- */
+  function sg(x) { return (x < 0 ? "−" : "+") + Math.abs(x).toFixed(1); }
+  function syncDOM(p) {
+    const sig = mode + "|" + foc() + "|" + d.toFixed(2);
+    if (sig === lastSig) return;
+    lastSig = sig;
+    rU.textContent = d.toFixed(1) + " cm in front";
+    rV.textContent = p.inf ? "at infinity"
+                   : p.v < 0 ? Math.abs(p.v).toFixed(1) + " cm in front"
+                   : p.v.toFixed(1) + " cm behind";
+    if (p.inf) rM.textContent = "—";
+    else {
+      const a = Math.abs(p.m);
+      rM.textContent = a.toFixed(2) + "× " + (a > 1.02 ? "magnified" : a < 0.98 ? "diminished" : "same size");
+    }
+    rN.textContent = p.inf ? "Image at infinity" : p.v < 0 ? "Real, inverted" : "Virtual, erect";
+    eq1.textContent = "1/v + 1/(" + sg(p.u) + ") = 1/(" + sg(p.f) + ")";
+    eq2.textContent = p.inf ? "v → ∞ (image at infinity)"
+                    : "v = " + sg(p.v) + " cm · m = −v/u = " + (p.m < 0 ? "−" : "+") + Math.abs(p.m).toFixed(2);
+  }
+
+  /* ---------- drawing helpers ---------- */
+  function seg2(x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  function head(x1, y1, x2, y2, t) {
+    const hx = Sim.lerp(x1, x2, t), hy = Sim.lerp(y1, y2, t);
+    const a = Math.atan2(y2 - y1, x2 - x1), s = 8;
+    ctx.beginPath();
+    ctx.moveTo(hx, hy);
+    ctx.lineTo(hx - s * Math.cos(a - 0.45), hy - s * Math.sin(a - 0.45));
+    ctx.lineTo(hx - s * Math.cos(a + 0.45), hy - s * Math.sin(a + 0.45));
+    ctx.closePath(); ctx.fill();
+  }
+
+  /* One construction ray. T = tip, B = bend point on mirror plane, Q = second
+     point defining the reflected line. All in world cm. The reflected ray is
+     the LEFTWARD branch of line(B,Q); its rightward branch (dashed) is the
+     virtual extension, drawn out to x = dashX cm when given. */
+  function ray(col, T, B, Q, dashX) {
+    const tx = X(T.x), ty = Y(T.y), bx = X(B.x), by = Y(B.y);
+    let dx = X(Q.x) - bx, dy = Y(Q.y) - by;
+    if (dx > 0) { dx = -dx; dy = -dy; }
+    if (dx === 0) dx = -1;
+    const L = Math.hypot(dx, dy) || 1;
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.8;
+    seg2(tx, ty, bx, by);                       /* incident */
+    head(tx, ty, bx, by, 0.55);
+    const k = 2600 / L;
+    seg2(bx, by, bx + dx * k, by + dy * k);     /* reflected */
+    head(bx, by, bx + dx / L * 140, by + dy / L * 140, 0.5);
+    if (dashX != null) {                        /* virtual extension */
+      const ex = X(dashX);
+      if (ex > bx + 2) {
+        const t = (ex - bx) / (-dx);
+        ctx.setLineDash([5, 5]); ctx.globalAlpha = 0.85;
+        seg2(bx, by, ex, by + (-dy) * t);
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+      }
+    }
+  }
+  function dashTarget(p, extra) {
+    if (p.inf || !(p.v > 0)) return null;
+    return Math.min(WR - 3, Math.max(p.v, extra));
+  }
+  function drawRays(c, p) {
+    const u = p.u, f = p.f, T = { x: u, y: H };
+    ray(c.accent, T, { x: 0, y: H }, { x: f, y: 0 }, dashTarget(p, f > 0 ? f : -1e9));
+    const den = 2 * f - u;
+    if (Math.abs(den) > 2) {
+      const y2 = 2 * f * H / den;
+      if (Math.abs(y2) * scale < Math.min(axisY, view.h - axisY) - 8)
+        ray(c.accent2, T, { x: 0, y: y2 }, { x: 2 * f, y: 0 }, dashTarget(p, f > 0 ? 2 * f : -1e9));
+    }
+    ray(c.cool, T, { x: 0, y: 0 }, { x: u, y: -H }, dashTarget(p, -1e9));
+  }
+
+  function drawAxis(c) {
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.9;
+    seg2(4, axisY, view.w - 4, axisY);
+    ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let cm = Math.ceil(WL / 10) * 10; cm <= WR; cm += 10) {
+      const x = X(cm);
+      ctx.moveTo(x, axisY - 3); ctx.lineTo(x, axisY + 3);
+    }
+    ctx.stroke(); ctx.globalAlpha = 1;
+  }
+
+  function drawMirror(c) {
+    /* dashed plane through P (rays bend here — thin-mirror idealisation) */
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1; ctx.setLineDash([4, 5]);
+    seg2(poleX, 38, poleX, view.h - 8);
+    ctx.setLineDash([]);
+
+    const conc = mode === "concave";
+    const ap = Math.min(axisY - 30, view.h - axisY - 30);
+    const R = Math.max(2 * foc() * scale, ap * 2.3);
+    const cx = poleX + (conc ? -R : R);
+    const a = Math.asin(Math.min(0.999, ap / R));
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 3.2; ctx.lineCap = "round";
+    ctx.beginPath();
+    const N = 40;
+    for (let i = 0; i <= N; i++) {
+      const th = -a + 2 * a * i / N;
+      const px = cx + (conc ? R * Math.cos(th) : -R * Math.cos(th));
+      const py = axisY + R * Math.sin(th);
+      if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    }
+    ctx.stroke();
+    /* hatching on the silvered back */
+    ctx.lineWidth = 1.3; ctx.strokeStyle = c.muted; ctx.globalAlpha = 0.75;
+    ctx.beginPath();
+    for (let i = 0; i <= 13; i++) {
+      const th = -a + 2 * a * i / 13;
+      const px = cx + (conc ? R * Math.cos(th) : -R * Math.cos(th));
+      const py = axisY + R * Math.sin(th);
+      const nx = Math.cos(th), ny = (conc ? 1 : -1) * Math.sin(th);
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + nx * 9 - ny * 4, py + ny * 9 + nx * 4);
+    }
+    ctx.stroke(); ctx.globalAlpha = 1; ctx.lineCap = "butt";
+  }
+
+  function drawMarkers(c) {
+    const fS = fSigned(), conc = mode === "concave";
+    ctx.font = "700 12px " + FF; ctx.textAlign = "center";
+    const pts = [[fS, "F"], [2 * fS, "C"]];
+    for (let i = 0; i < pts.length; i++) {
+      const x = X(pts[i][0]);
+      ctx.strokeStyle = c.ink; ctx.lineWidth = 2;
+      seg2(x, axisY - 6, x, axisY + 6);
+      ctx.fillStyle = c.ink;
+      ctx.fillText(pts[i][1], x, axisY + 20);
+    }
+    ctx.fillStyle = c.ink;
+    ctx.fillText("P", poleX + (conc ? -10 : 10), axisY + 20);
+  }
+
+  function candle(xpx, hpx, virtual, c, t) {
+    const mag = Math.abs(hpx);
+    if (mag < 2) return;
+    ctx.save();
+    ctx.translate(xpx, axisY);
+    ctx.scale(mag / 100, hpx / 100);
+    if (virtual) ctx.globalAlpha = 0.5;
+    ctx.fillStyle = "#e9bd6a";                       /* wax body */
+    Sim.rr(ctx, -13, -58, 26, 58, 6); ctx.fill();
+    ctx.fillStyle = "#6a5138";                       /* wick */
+    ctx.fillRect(-1.6, -67, 3.2, 10);
+    ctx.fillStyle = c.warm;                          /* outer flame */
+    ctx.beginPath();
+    ctx.moveTo(0, -58);
+    ctx.bezierCurveTo(-12, -66, -9, -88, 0, -100);
+    ctx.bezierCurveTo(9, -88, 12, -66, 0, -58);
+    ctx.fill();
+    ctx.transform(1, 0, 0.1 * Math.sin(t * 9 + xpx * 0.05), 1, 0, 0);
+    ctx.fillStyle = "#ffd66b";                       /* inner flame (sways) */
+    ctx.beginPath();
+    ctx.moveTo(0, -61);
+    ctx.bezierCurveTo(-5.5, -66, -4.5, -82, 0, -90);
+    ctx.bezierCurveTo(4.5, -82, 5.5, -66, 0, -61);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function label(c, txt, xpx, col) {
+    ctx.font = "600 10.5px " + FF; ctx.textAlign = "center";
+    ctx.fillStyle = col || c.muted;
+    ctx.fillText(txt, Sim.clamp(xpx, 26, view.w - 26), axisY + 34);
+  }
+
+  function drawCase(c, p) {
+    const L = caseLabel(p);
+    let f1 = 12.5, f2 = 11.5;
+    ctx.font = "700 " + f1 + "px " + FF;
+    const w1 = ctx.measureText(L[0]).width;
+    ctx.font = "600 " + f2 + "px " + FF;
+    const w2 = ctx.measureText(L[1]).width;
+    if (w1 > view.w - 12 || w2 > view.w - 12) { f1 = 10.5; f2 = 10; }
+    ctx.textAlign = "center";
+    ctx.fillStyle = c.ink;  ctx.font = "700 " + f1 + "px " + FF; ctx.fillText(L[0], view.w / 2, 16);
+    ctx.fillStyle = c.muted; ctx.font = "600 " + f2 + "px " + FF; ctx.fillText(L[1], view.w / 2, 32);
+  }
+
+  function drawCaption(c, txt) {
+    let fs = 12.5;
+    ctx.font = "600 " + fs + "px " + FF;
+    let tw = ctx.measureText(txt).width;
+    if (tw > view.w - 26) { fs = 10.5; ctx.font = "600 " + fs + "px " + FF; tw = ctx.measureText(txt).width; }
+    const pw = tw + 24, py = view.h - 36;
+    Sim.rr(ctx, view.w / 2 - pw / 2, py, pw, 26, 13);
+    ctx.fillStyle = c.surface; ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = c.ink; ctx.textAlign = "center";
+    ctx.fillText(txt, view.w / 2, py + 17);
+  }
+
+  function edgeNote(c, p) {
+    const right = p.v > 0;
+    ctx.font = "600 11.5px " + FF;
+    ctx.fillStyle = c.hot;
+    ctx.textAlign = right ? "right" : "left";
+    ctx.fillText(right ? "image " + p.v.toFixed(0) + " cm behind →"
+                       : "← image " + Math.abs(p.v).toFixed(0) + " cm in front",
+                 right ? view.w - 8 : 8, axisY - 12);
+  }
+
+  /* ---------- main loop ---------- */
+  function draw(dt, t) {
+    const c = Sim.colors();
+    geom();
+    stepAnim(dt);
+    const p = phys();
+    syncDOM(p);
+
+    ctx.clearRect(0, 0, view.w, view.h);
+    drawAxis(c);
+    drawMirror(c);
+    drawMarkers(c);
+    drawRays(c, p);
+
+    /* object candle */
+    const ox = X(p.u);
+    ctx.fillStyle = c.muted; ctx.globalAlpha = 0.5;
+    Sim.rr(ctx, ox - 12, axisY - 1, 24, 4, 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    candle(ox, H * scale, false, c, t);
+
+    /* image candle (or graceful fallbacks) */
+    if (!p.inf) {
+      if (p.v < WL + 2 || p.v > WR - 2) edgeNote(c, p);
+      else {
+        candle(X(p.v), p.m * H * scale, p.v > 0, c, t);
+        label(c, p.v > 0 ? "virtual image" : "real image", X(p.v), c.hot);
+      }
+    }
+
+    /* labels + overlays */
+    if (hasDragged || anim) label(c, "object", ox);
+    else {
+      const a = 0.6 + 0.4 * Math.sin(t * 3);
+      ctx.globalAlpha = a;
+      label(c, "◂ drag the candle ▸", ox, c.accent);
+      ctx.globalAlpha = 1;
+    }
+    drawCase(c, p);
+    if (animCap) drawCaption(c, animCap);
+
+    /* scale bar */
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 1.5;
+    seg2(10, view.h - 10, 10 + 20 * scale, view.h - 10);
+    seg2(10, view.h - 14, 10, view.h - 6);
+    seg2(10 + 20 * scale, view.h - 14, 10 + 20 * scale, view.h - 6);
+    ctx.fillStyle = c.muted; ctx.font = "600 10px " + FF; ctx.textAlign = "left";
+    ctx.fillText("20 cm", 16 + 20 * scale, view.h - 7);
+    if (view.w > 640) {
+      ctx.fillText("light travels →", 10, 16);
+    }
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

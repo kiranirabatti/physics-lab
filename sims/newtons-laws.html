@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Newton's Laws — Physics Lab</title>
+<meta name="description" content="Push a crate with a chosen force, toggle friction, and feel F = ma. See why things keep moving without friction. CBSE Class 9.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Newton's Laws</h1>
+  <span class="chip c9">Class 9</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <canvas id="stage" aria-label="A crate on a long floor. Force arrows show the applied push, friction and the net force. You can also drag the crate to throw it."></canvas>
+
+    <div class="controls">
+      <div class="ctl">
+        <div class="lab"><label for="mass">Mass m</label><output id="massOut"></output></div>
+        <input type="range" id="mass" min="1" max="20" step="1" value="5">
+      </div>
+      <div class="ctl">
+        <div class="lab"><label for="force">Applied force F (− left / + right)</label><output id="forceOut"></output></div>
+        <input type="range" id="force" min="-100" max="100" step="1" value="0">
+      </div>
+      <div class="ctl" id="muCtl">
+        <div class="lab"><label for="mu">Friction coefficient μ</label><output id="muOut"></output></div>
+        <input type="range" id="mu" min="0" max="1" step="0.05" value="0.4">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: same push, light vs heavy</button>
+      <button class="btn on" id="fric">Friction: ON</button>
+      <button class="btn" id="push">👋 Give it a push</button>
+      <button class="btn" id="reset">↺ Reset</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>Ever pushed a loaded <b>thela</b> (hand-cart) and an empty one? Same push, but the empty cart leaps forward. That is Newton's 2nd law: <b>acceleration = net force ÷ mass</b>.</p>
+      <p>Friction is the spoiler. While the crate is at rest, <b>static friction</b> silently cancels your push — nothing moves until you beat μmg. Once it slides, <b>kinetic friction</b> keeps dragging it backwards.</p>
+      <p>Aristotle believed a force is needed just to <i>keep</i> something moving. Turn friction OFF and watch the crate glide forever with zero force — that is Newton's 1st law, and why a spacecraft never needs its engine on to coast.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">F<sub>net</sub> = m × a<br>f = μN = μmg</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">Net force</div><div class="v" id="rNet">—</div></div>
+        <div class="readout"><div class="k">Acceleration a</div><div class="v" id="rA">—</div></div>
+        <div class="readout"><div class="k">Velocity v</div><div class="v" id="rV">—</div></div>
+        <div class="readout"><div class="k">Friction f</div><div class="v" id="rFr">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> turn friction OFF, tap <b>👋 Give it a push</b>, and leave F at 0. The crate never stops — no force is needed to keep it moving! Now turn friction ON and slide F up slowly: static friction cancels you exactly until |F| crosses μmg… then it breaks free.</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 16 / 9, maxH: 470 });
+  const ctx = view.ctx;
+  const FONT = getComputedStyle(document.body).fontFamily;
+  const G = 9.8, SCALE = 30;              // px per metre
+
+  const m  = Sim.slider("mass",  function (v) { return v.toFixed(0) + " kg"; });
+  const F  = Sim.slider("force", function (v) { return (v > 0 ? "+" : "") + v.toFixed(0) + " N"; });
+  const mu = Sim.slider("mu",    function (v) { return v.toFixed(2); });
+
+  const rNet = document.getElementById("rNet"), rA = document.getElementById("rA"),
+        rV = document.getElementById("rV"), rFr = document.getElementById("rFr");
+
+  let fricOn = true, v = 0, x = 0;        // SI: m/s, m
+  let mode = "normal", raceT = 0;         // "normal" | "race"
+  let grab = null;
+  let outA = 0, outFr = 0, statically = false;
+
+  const fricBtn = document.getElementById("fric");
+  const muCtl = document.getElementById("muCtl");
+  fricBtn.addEventListener("click", function () {
+    fricOn = !fricOn;
+    fricBtn.classList.toggle("on", fricOn);
+    fricBtn.textContent = fricOn ? "Friction: ON" : "Friction: OFF";
+    muCtl.style.visibility = fricOn ? "visible" : "hidden";
+  });
+  document.getElementById("push").addEventListener("click", function () {
+    if (mode === "normal") v += 4;
+  });
+  document.getElementById("reset").addEventListener("click", function () {
+    v = 0; x = 0; F.set(0); mode = "normal";
+  });
+  document.getElementById("preset").addEventListener("click", function () {
+    mode = "race"; raceT = 0; v = 0; x = 0;
+  });
+
+  function crateSize() { return 36 + m() * 2.2; }
+
+  /* ---- drag the crate to throw it (touch + mouse) ---- */
+  Sim.pointer(view.el, {
+    down: function (p) {
+      if (mode !== "normal") return;
+      const gy = view.h * 0.72, size = crateSize(), cx = view.w / 2;
+      if (Math.abs(p.x - cx) < size / 2 + 26 && p.y > gy - size - 30 && p.y < gy + 10) {
+        grab = { px: p.x, t: performance.now(), v: 0 };
+        v = 0;
+      }
+    },
+    move: function (p) {
+      if (!grab) return;
+      const now = performance.now();
+      const dts = Math.max((now - grab.t) / 1000, 1 / 240);
+      const dxm = (p.x - grab.px) / SCALE;
+      x += dxm;
+      grab.v = 0.65 * grab.v + 0.35 * (dxm / dts);
+      grab.px = p.x; grab.t = now;
+    },
+    up: function () {
+      if (grab) { v = Sim.clamp(grab.v, -25, 25); grab = null; }
+    }
+  });
+
+  /* ---- physics: static + kinetic friction, F = ma ---- */
+  function step(dt) {
+    const mass = m(), Fap = F(), N = mass * G;
+    statically = false;
+    if (grab) { outA = 0; outFr = 0; return; }
+    if (!fricOn) {
+      outFr = 0;
+      outA = Fap / mass;
+      v += outA * dt;
+    } else {
+      const fmax = mu() * N;
+      if (v === 0) {
+        if (Math.abs(Fap) <= fmax) {          // static: friction cancels the push
+          outFr = -Fap; outA = 0;
+          statically = Math.abs(Fap) > 0.5;
+        } else {                              // breaks free
+          outFr = -Math.sign(Fap) * fmax;
+          outA = (Fap + outFr) / mass;
+          v += outA * dt;
+        }
+      } else {                                // kinetic: friction opposes velocity
+        outFr = -Math.sign(v) * fmax;
+        outA = (Fap + outFr) / mass;
+        const vn = v + outA * dt;
+        if (vn * v <= 0 && Math.abs(Fap) <= fmax) { v = 0; outA = 0; outFr = -Fap; }
+        else v = vn;
+      }
+    }
+    x += v * dt;
+  }
+
+  /* ---------- drawing ---------- */
+  function draw(dt) {
+    const c = Sim.colors();
+    const w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+    if (mode === "race") { drawRace(c, dt, w, h); return; }
+    step(dt);
+    const gy = h * 0.72, cx = w / 2, size = crateSize();
+    drawGround(c, w, h, gy);
+    drawCrate(cx, gy, size, m() + " kg", c);
+    /* speed lines */
+    if (Math.abs(v) > 3) {
+      const dir = v > 0 ? 1 : -1;
+      ctx.strokeStyle = c.muted; ctx.globalAlpha = 0.6; ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const yy = gy - size * (0.25 + i * 0.25);
+        ctx.beginPath();
+        ctx.moveTo(cx - dir * (size / 2 + 8), yy);
+        ctx.lineTo(cx - dir * (size / 2 + 8 + Math.min(Math.abs(v) * 2.2, 40)), yy);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    /* weight + normal (small, balanced pair) */
+    const wl = Sim.clamp(m() * G * 0.22, 14, 44);
+    ctx.strokeStyle = ctx.fillStyle = c.muted;
+    ctx.lineWidth = 2;
+    Sim.arrow(ctx, cx - 9, gy - size / 2, cx - 9, gy - size / 2 + wl, 6);
+    Sim.arrow(ctx, cx + 9, gy, cx + 9, gy - wl, 6);
+    ctx.font = "600 10px " + FONT;
+    ctx.fillText("mg", cx - 32, gy - size / 2 + wl);
+    ctx.fillText("N", cx + 15, gy - wl + 2);
+    /* force arrows */
+    const Fap = F(), net = m() * outA;
+    const yA = gy - size * 0.62, yF = gy - 8, yN = gy - size - 26;
+    if (Math.abs(Fap) > 0.5)
+      fArrow(cx, yA, Fap, size, c.accent, "F = " + Sim.fmt(Fap, 0) + " N", 3.5);
+    if (Math.abs(outFr) > 0.5)
+      fArrow(cx, yF, outFr, size, c.hot, "f = " + Sim.fmt(Math.abs(outFr), 1) + " N", 3.5);
+    if (Math.abs(net) > 0.5) {
+      fArrow(cx, yN, net, size, c.ink, "Fnet = " + Sim.fmt(net, 1) + " N", 5);
+    } else {
+      ctx.fillStyle = c.muted;
+      ctx.font = "700 11.5px " + FONT;
+      ctx.textAlign = "center";
+      ctx.fillText("Fnet = 0", cx, yN + 4);
+      ctx.textAlign = "left";
+    }
+    if (statically) {
+      ctx.fillStyle = c.hot;
+      ctx.font = "600 11.5px " + FONT;
+      ctx.textAlign = "center";
+      ctx.fillText("static friction grips — it exactly cancels your push", cx, Math.max(yN - 16, 12));
+      ctx.textAlign = "left";
+    }
+    /* readouts */
+    rNet.textContent = Sim.fmt(net, 1) + " N";
+    rA.textContent = Sim.fmt(outA, 2) + " m/s²";
+    rV.textContent = Sim.fmt(v, 2) + " m/s";
+    rFr.textContent = Sim.fmt(Math.abs(outFr), 1) + " N";
+  }
+
+  function fArrow(cx, y, val, size, color, label, lw) {
+    const w = view.w;
+    const dir = val > 0 ? 1 : -1;
+    const len = Sim.clamp(Math.abs(val) * 1.5, 14, w / 2 - size / 2 - 14);
+    const x1 = cx + dir * (size / 2 + 4);
+    const x2 = x1 + dir * len;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = lw;
+    Sim.arrow(ctx, x1, y, x2, y, 7 + lw);
+    ctx.font = "700 11.5px " + FONT;
+    ctx.textAlign = "center";
+    ctx.fillText(label, Sim.clamp((x1 + x2) / 2, 40, w - 40), y - 9);
+    ctx.textAlign = "left";
+  }
+
+  function drawGround(c, w, h, gy) {
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, gy, w, h - gy);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke();
+    /* scrolling metre marks — the camera follows the crate */
+    const cx = w / 2;
+    const mLeft = Math.ceil(x - cx / SCALE), mRight = Math.floor(x + (w - cx) / SCALE);
+    ctx.fillStyle = c.muted;
+    ctx.strokeStyle = c.muted;
+    ctx.font = "600 10px " + FONT;
+    ctx.textAlign = "center";
+    for (let mm = mLeft; mm <= mRight; mm++) {
+      const sx = cx + (mm - x) * SCALE;
+      const big = mm % 5 === 0;
+      ctx.lineWidth = big ? 1.6 : 1;
+      ctx.beginPath(); ctx.moveTo(sx, gy); ctx.lineTo(sx, gy + (big ? 16 : 7)); ctx.stroke();
+      if (big) ctx.fillText(mm + " m", sx, gy + 30);
+    }
+    ctx.textAlign = "left";
+  }
+
+  function drawCrate(cx, gy, size, label, c) {
+    Sim.rr(ctx, cx - size / 2, gy - size, size, size, 6);
+    ctx.fillStyle = c.warm;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.28)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(0,0,0,0.16)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - size / 2 + 4, gy - size + size / 3);
+    ctx.lineTo(cx + size / 2 - 4, gy - size + size / 3);
+    ctx.moveTo(cx - size / 2 + 4, gy - size + 2 * size / 3);
+    ctx.lineTo(cx + size / 2 - 4, gy - size + 2 * size / 3);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(20,12,0,0.72)";
+    ctx.font = "700 " + Math.max(12, size * 0.22) + "px " + FONT;
+    ctx.textAlign = "center";
+    ctx.fillText(label, cx, gy - size / 2 + 5);
+    ctx.textAlign = "left";
+  }
+
+  /* ---- "Show me": 2 kg vs 10 kg, same 40 N, frictionless race ---- */
+  const RM = [2, 10], RF = 40;
+  function drawRace(c, dt, w, h) {
+    raceT += dt;
+    const tt = Math.min(raceT, 3);
+    const ppm = (w - 150) / 90;             // light crate covers 90 m in 3 s
+    for (let i = 0; i < 2; i++) {
+      const gy = h * (i === 0 ? 0.42 : 0.86);
+      const a = RF / RM[i];
+      const d = 0.5 * a * tt * tt;
+      const size = 34 + RM[i] * 2.4;
+      ctx.strokeStyle = c.border;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke();
+      const cx = 60 + size / 2 + d * ppm;
+      drawCrate(cx, gy, size, RM[i] + " kg", c);
+      ctx.strokeStyle = ctx.fillStyle = c.accent;
+      ctx.lineWidth = 3.5;
+      Sim.arrow(ctx, Math.max(cx - size / 2 - 58, 2), gy - size / 2, cx - size / 2 - 6, gy - size / 2, 10);
+      ctx.fillStyle = c.muted;
+      ctx.font = "600 11.5px " + FONT;
+      ctx.fillText("F = 40 N    a = " + Sim.fmt(a, 0) + " m/s²    v = " + Sim.fmt(a * tt, 1) + " m/s",
+                   12, gy - size - 10);
+    }
+    /* start line */
+    ctx.strokeStyle = c.muted;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(60, h * 0.1); ctx.lineTo(60, h * 0.92); ctx.stroke();
+    ctx.setLineDash([]);
+    if (raceT >= 3) {
+      ctx.font = "700 13px " + FONT;
+      const msg1 = "Same 40 N push:";
+      const msg2 = "5× the mass → ⅕ the acceleration  (a = F/m)";
+      const tw = ctx.measureText(msg2).width;
+      Sim.rr(ctx, w / 2 - tw / 2 - 14, h * 0.56 - 24, tw + 28, 48, 12);
+      ctx.fillStyle = c.surface;
+      ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = c.accent;
+      ctx.textAlign = "center";
+      ctx.fillText(msg1, w / 2, h * 0.56 - 6);
+      ctx.fillText(msg2, w / 2, h * 0.56 + 13);
+      ctx.textAlign = "left";
+    }
+    if (raceT > 6.2) { mode = "normal"; v = 0; x = 0; F.set(0); }
+    rNet.textContent = rA.textContent = rV.textContent = rFr.textContent = "—";
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

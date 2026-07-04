@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dispersion &amp; Scattering — Physics Lab</title>
+<meta name="description" content="Split white light into VIBGYOR through a real Snell's-law prism, then see why the sky is blue and sunsets are red with Rayleigh scattering. CBSE Class 10.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+<style>
+  /* tiny sim-specific tweak: allow the two view buttons to wrap on narrow phones */
+  .seg { flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Dispersion &amp; Scattering</h1>
+  <span class="chip c10">Class 10</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <div class="btn-row" role="group" aria-label="Choose a view">
+      <div class="seg">
+        <button class="btn on" id="segPrism">Prism</button>
+        <button class="btn" id="segSky">Why is the sky blue?</button>
+      </div>
+    </div>
+
+    <canvas id="stage" aria-label="White light dispersing through a glass prism into a rainbow, or sunlight scattering through the atmosphere"></canvas>
+
+    <div class="controls">
+      <div class="ctl" id="ctlInc">
+        <div class="lab"><label for="inc">Angle of incidence</label><output id="incOut"></output></div>
+        <input type="range" id="inc" min="36" max="60" step="0.5" value="45">
+      </div>
+      <div class="ctl" id="ctlTod" style="display:none">
+        <div class="lab"><label for="tod">Time of day</label><output id="todOut"></output></div>
+        <input type="range" id="tod" min="0" max="100" step="0.5" value="0">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: why sunsets are red</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p><b>Prism:</b> glass slows violet light a little more than red (its refractive index is higher for violet). More slowing = more bending, at <i>both</i> faces. So white light fans out into VIBGYOR — violet bends most, red least. That's all dispersion is.</p>
+      <p><b>Sky:</b> air molecules are tiny, so they scatter short (blue) waves far more than long (red) ones — about 10× more. At noon a little blue is knocked sideways into your eyes from every direction: blue sky. At sunset the light grazes through a much longer stretch of air, nearly all the blue is scattered away en route, and what survives is orange-red.</p>
+      <p>Same reason danger signs and brake lights are <b style="color:var(--hot)">red</b>: red scatters least, so it punches farthest through fog and dust.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">scattering ∝ 1/λ⁴<br>n<sub>violet</sub> (1.532) &gt; n<sub>red</sub> (1.513)</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k" id="k1">—</div><div class="v" id="v1">—</div></div>
+        <div class="readout"><div class="k" id="k2">—</div><div class="v" id="v2">—</div></div>
+        <div class="readout"><div class="k" id="k3">—</div><div class="v" id="v3">—</div></div>
+        <div class="readout"><div class="k" id="k4">—</div><div class="v" id="v4">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> in the prism view, lower the angle of incidence towards 36°. The exit rays leave the glass more and more steeply and the spectrum fans out wider. (Below about 31° the violet ray can't escape at all — total internal reflection traps it, so the slider stops before that.)</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 16 / 10, maxH: 520 });
+  const ctx = view.ctx;
+  const FONT = getComputedStyle(document.body).fontFamily;
+  const D2R = Math.PI / 180;
+
+  /* ---------- state ---------- */
+  let mode = "prism";
+  const bPrism = document.getElementById("segPrism"), bSky = document.getElementById("segSky");
+  const ctlInc = document.getElementById("ctlInc"), ctlTod = document.getElementById("ctlTod");
+  const K = [1, 2, 3, 4].map(function (i) { return document.getElementById("k" + i); });
+  const V = [1, 2, 3, 4].map(function (i) { return document.getElementById("v" + i); });
+  const lastV = ["", "", "", ""];
+  function setRead(i, k, v) {
+    if (K[i].textContent !== k) K[i].textContent = k;
+    if (lastV[i] !== v) { lastV[i] = v; V[i].textContent = v; }
+  }
+
+  function setMode(m) {
+    mode = m;
+    bPrism.classList.toggle("on", m === "prism");
+    bSky.classList.toggle("on", m === "sky");
+    ctlInc.style.display = m === "prism" ? "" : "none";
+    ctlTod.style.display = m === "sky" ? "" : "none";
+  }
+  bPrism.addEventListener("click", function () { preset.on = false; setMode("prism"); });
+  bSky.addEventListener("click", function () { preset.on = false; setMode("sky"); });
+
+  const inc = Sim.slider("inc", function (v) { return "i = " + v.toFixed(1) + "°"; },
+                         function () { preset.on = false; });
+  const tod = Sim.slider("tod", function (v) {
+    return v < 4 ? "noon ☀️" : v > 96 ? "sunset 🌇" : v < 50 ? "afternoon" : "evening";
+  });
+  tod.el.addEventListener("pointerdown", function () { preset.on = false; });
+
+  /* ---------- preset: noon → sunset ---------- */
+  const preset = { on: false, t: 0 };
+  document.getElementById("preset").addEventListener("click", function () {
+    setMode("sky");
+    preset.on = true; preset.t = 0;
+    tod.set(0);
+  });
+
+  /* ---------- drag the sun across the sky ---------- */
+  let sunDrag = false;
+  function dragSun(p, start) {
+    if (mode !== "sky") return;
+    const w = view.w, h = view.h;
+    const gy = h - Math.max(34, h * 0.16);
+    if (start && p.y > gy) return;             // ignore taps on the ground strip
+    sunDrag = true;
+    preset.on = false;
+    const ox = w * 0.62;
+    const elev = Sim.clamp(Math.atan2(Math.max(gy - p.y, 0), Math.max(ox - p.x, 1)) / D2R, 4, 88);
+    tod.set(Sim.clamp((88 - elev) / 84 * 100, 0, 100));
+  }
+  Sim.pointer(view.el, {
+    down: function (p) { dragSun(p, true); },
+    move: function (p) { if (sunDrag) dragSun(p, false); },
+    up: function () { sunDrag = false; }
+  });
+
+  /* ============================================================
+     PRISM — Snell's law at both faces, 7 wavelengths
+     ============================================================ */
+  const SPECT = [
+    { col: "#e5484d", n: 0 },  // red    n = 1.513
+    { col: "#f2801e", n: 0 },
+    { col: "#e3b407", n: 0 },
+    { col: "#2fb344", n: 0 },
+    { col: "#2f81f7", n: 0 },
+    { col: "#6e56cf", n: 0 },
+    { col: "#a144cf", n: 0 }   // violet n = 1.532
+  ];
+  for (let k = 0; k < 7; k++) SPECT[k].n = 1.513 + (1.532 - 1.513) * k / 6;
+  const hitY = [0, 0, 0, 0, 0, 0, 0];   // screen y per colour (reused, no realloc)
+  const devDeg = [0, 0, 0, 0, 0, 0, 0];
+
+  function refract(dx, dy, nx, ny, eta) {
+    const cosi = -(dx * nx + dy * ny);
+    const k = 1 - eta * eta * (1 - cosi * cosi);
+    if (k < 0) return null;
+    const t = eta * cosi - Math.sqrt(k);
+    return { x: eta * dx + t * nx, y: eta * dy + t * ny };
+  }
+
+  function drawPrism(c, time) {
+    const w = view.w, h = view.h;
+    /* geometry: equilateral prism, apex up */
+    const L = Math.min(w * 0.34, (h * 0.74) / 0.866);
+    const A = { x: w * 0.40, y: h * 0.07 };
+    const B = { x: A.x - L / 2, y: A.y + L * 0.866 };
+    const C = { x: A.x + L / 2, y: A.y + L * 0.866 };
+    const E = { x: A.x - 0.45 * L * 0.5, y: A.y + 0.45 * L * 0.866 };
+    const n1 = { x: -0.866, y: -0.5 };            // outward normal, left face
+    const n2in = { x: -0.866, y: 0.5 };           // normal opposing inside ray at right face
+    const iDeg = inc();
+    const d0 = { x: Math.cos((30 - iDeg) * D2R), y: Math.sin((30 - iDeg) * D2R) };
+    const xs = w - 34;                            // screen x
+
+    /* glass body */
+    ctx.fillStyle = c.dark ? "rgba(148,168,255,0.10)" : "rgba(88,108,220,0.09)";
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.lineTo(C.x, C.y); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    const smallF = "600 " + Math.min(13, Math.max(10, Math.round(w / 36))) + "px " + FONT;
+    ctx.font = smallF; ctx.fillStyle = c.muted; ctx.textAlign = "center";
+    ctx.fillText("60°", A.x, A.y + 22);
+
+    /* incident white ray (drawn in ink — this is 'white light') */
+    const back = Math.min(w * 0.30, 240);
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(E.x - d0.x * back, E.y - d0.y * back); ctx.lineTo(E.x, E.y); ctx.stroke();
+    ctx.fillStyle = c.ink;
+    ctx.save();
+    ctx.translate(E.x - d0.x * back * 0.72, E.y - d0.y * back * 0.72);
+    ctx.rotate(Math.atan2(d0.y, d0.x));
+    ctx.textAlign = "center";
+    ctx.fillText("white light", 0, -8);
+    ctx.restore();
+
+    /* normal (dashed) + i label at entry */
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(E.x + n1.x * 40, E.y + n1.y * 40);
+    ctx.lineTo(E.x - n1.x * 26, E.y - n1.y * 26);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    /* trace all 7 colours */
+    let ysMin = 1e9, ysMax = -1e9;
+    for (let k = 0; k < 7; k++) {
+      const n = SPECT[k].n;
+      const t1 = refract(d0.x, d0.y, n1.x, n1.y, 1 / n);
+      /* intersection with right face A→C */
+      const ux = C.x - A.x, uy = C.y - A.y;
+      const den = t1.x * uy - t1.y * ux;
+      const s = ((A.x - E.x) * uy - (A.y - E.y) * ux) / den;
+      const X = { x: E.x + t1.x * s, y: E.y + t1.y * s };
+      const t2 = refract(t1.x, t1.y, n2in.x, n2in.y, n);
+      if (!t2) continue;   // TIR (slider range prevents this)
+      devDeg[k] = Math.acos(Sim.clamp(d0.x * t2.x + d0.y * t2.y, -1, 1)) / D2R;
+      const ys = X.y + (t2.y / t2.x) * (xs - X.x);
+      hitY[k] = ys;
+      if (ys < ysMin) ysMin = ys;
+      if (ys > ysMax) ysMax = ys;
+
+      /* inside the glass */
+      ctx.strokeStyle = SPECT[k].col; ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.moveTo(E.x, E.y); ctx.lineTo(X.x, X.y); ctx.stroke();
+      /* out into air: soft under-glow + core line */
+      ctx.globalAlpha = 0.22; ctx.lineWidth = 4.5;
+      ctx.beginPath(); ctx.moveTo(X.x, X.y); ctx.lineTo(xs, ys); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(X.x, X.y); ctx.lineTo(xs, ys); ctx.stroke();
+    }
+
+    /* screen strip + spectrum band */
+    ctx.fillStyle = c.surface2; ctx.strokeStyle = c.border; ctx.lineWidth = 1;
+    Sim.rr(ctx, xs - 2, 8, 16, h - 16, 6); ctx.fill(); ctx.stroke();
+    if (ysMax > ysMin) {
+      const g = ctx.createLinearGradient(0, ysMin, 0, ysMax);
+      for (let k = 0; k < 7; k++)
+        g.addColorStop(Sim.clamp((hitY[k] - ysMin) / (ysMax - ysMin), 0, 1), SPECT[k].col);
+      ctx.fillStyle = g;
+      const by0 = Sim.clamp(ysMin - 5, 10, h - 14);
+      const by1 = Sim.clamp(ysMax + 5, by0 + 4, h - 10);
+      Sim.rr(ctx, xs - 2, by0, 16, by1 - by0, 4);
+      ctx.fill();
+      ctx.font = smallF; ctx.textAlign = "right";
+      ctx.fillStyle = SPECT[0].col; ctx.fillText("R", xs - 8, Math.max(20, ysMin - 8));
+      ctx.fillStyle = SPECT[6].col; ctx.fillText("V", xs - 8, Math.min(h - 10, ysMax + 16));
+    }
+    ctx.save();
+    ctx.translate(xs + 13, 24); ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = c.muted; ctx.font = smallF; ctx.textAlign = "left";
+    ctx.fillText("screen", 0, 0);
+    ctx.restore();
+
+    /* i label */
+    ctx.textAlign = "right"; ctx.fillStyle = c.ink;
+    ctx.fillText("i = " + iDeg.toFixed(0) + "°", E.x - 12, E.y - 14);
+
+    /* deviation captions (top-right corner stays clear of all rays) */
+    const capX = w - 44;
+    const narrow = w < 520;
+    ctx.textAlign = "right"; ctx.font = "700 " + Math.min(15, Math.max(11, Math.round(w / 34))) + "px " + FONT;
+    ctx.fillStyle = SPECT[0].col;
+    ctx.fillText("δ red = " + devDeg[0].toFixed(1) + "°" + (narrow ? "" : "  (bends least)"), capX, 20);
+    ctx.fillStyle = SPECT[6].col;
+    ctx.fillText("δ violet = " + devDeg[6].toFixed(1) + "°" + (narrow ? "" : "  (bends most)"), capX, 38);
+    ctx.textAlign = "left";
+    ctx.fillStyle = c.muted; ctx.font = smallF;
+    ctx.fillText(narrow ? "glass slows violet more → bends more" :
+      "glass slows violet a little more than red — more slowing means more bending", 12, h - 12);
+
+    setRead(0, "δ red", devDeg[0].toFixed(1) + "°");
+    setRead(1, "δ violet", devDeg[6].toFixed(1) + "°");
+    setRead(2, "spread (δv−δr)", (devDeg[6] - devDeg[0]).toFixed(1) + "°");
+    setRead(3, "n red → violet", "1.513 → 1.532");
+    void time;
+  }
+
+  /* ============================================================
+     SKY — Rayleigh scattering, honest slab-atmosphere model
+     ============================================================ */
+  const TAU_R = 0.0606, TAU_G = 0.1136, TAU_B = 0.20;   // τ ∝ 1/λ⁴  (620/530/460 nm)
+  const dots = [];
+  for (let k = 0; k < 42; k++)
+    dots.push({ s: (k + 0.5) / 42, o: (Math.random() * 2 - 1) * 7, ph: Math.random() * 6.28 });
+
+  function skyRGB(mView, mSun, out) {
+    const ir = (1 - Math.exp(-TAU_R * mView)) * Math.exp(-TAU_R * mSun);
+    const ig = (1 - Math.exp(-TAU_G * mView)) * Math.exp(-TAU_G * mSun);
+    const ib = (1 - Math.exp(-TAU_B * mView)) * Math.exp(-TAU_B * mSun);
+    const mx = Math.max(ir, ig, ib, 1e-9);
+    const br = Sim.clamp(0.22 + mx * 5.2, 0, 1) * 255 / mx;
+    out[0] = Math.round(ir * br); out[1] = Math.round(ig * br); out[2] = Math.round(ib * br);
+  }
+  const zen = [0, 0, 0], hor = [0, 0, 0];   // reused colour triples
+  function rgb(a) { return "rgb(" + a[0] + "," + a[1] + "," + a[2] + ")"; }
+
+  function drawSky(c, time) {
+    const w = view.w, h = view.h;
+    const gy = h - Math.max(34, h * 0.16);            // ground line
+    const t = tod() / 100;
+    const elev = Sim.lerp(88, 4, t) * D2R;
+    const m = Math.min(1 / Math.sin(elev), 13);       // relative path length through air
+
+    const ox = w * 0.62;                              // observer
+    const eye = { x: ox, y: gy - 26 };
+    const R = Math.min(gy - 30, ox - 26);
+    const sun = { x: ox - R * Math.cos(elev), y: gy - R * Math.sin(elev) };
+    const yAtm = gy - Math.min(72, gy * 0.36);        // top of the air slab
+
+    /* sky gradient: zenith → horizon */
+    skyRGB(1, Math.min(m * 0.35 + 1, 13), zen);
+    skyRGB(m * 0.85, m, hor);
+    const g = ctx.createLinearGradient(0, 0, 0, gy);
+    g.addColorStop(0, rgb(zen));
+    g.addColorStop(1, rgb(hor));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, gy);
+
+    /* glow around the sun */
+    const tR = Math.exp(-TAU_R * m), tG = Math.exp(-TAU_G * m), tB = Math.exp(-TAU_B * m);
+    let sr = 255 * tR, sg = 244 * tG, sb = 224 * tB;
+    const smx = Math.max(sr, sg, sb);
+    sr = Math.round(sr * 255 / smx); sg = Math.round(sg * 255 / smx); sb = Math.round(sb * 255 / smx);
+    const glow = ctx.createRadialGradient(sun.x, sun.y, 4, sun.x, sun.y, 70);
+    glow.addColorStop(0, "rgba(" + sr + "," + sg + "," + sb + ",0.85)");
+    glow.addColorStop(1, "rgba(" + sr + "," + sg + "," + sb + ",0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(sun.x - 70, sun.y - 70, 140, 140);
+    ctx.fillStyle = "rgb(" + sr + "," + sg + "," + sb + ")";
+    ctx.beginPath(); ctx.arc(sun.x, sun.y, 13, 0, 7); ctx.fill();
+
+    /* atmosphere slab */
+    ctx.fillStyle = "rgba(255,255,255,0.07)";
+    ctx.fillRect(0, yAtm, w, gy - yAtm);
+    ctx.strokeStyle = "rgba(255,255,255,0.45)";
+    ctx.lineWidth = 1; ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.moveTo(0, yAtm); ctx.lineTo(w, yAtm); ctx.stroke();
+    ctx.setLineDash([]);
+    const smallF = "600 " + Math.min(13, Math.max(10, Math.round(w / 36))) + "px " + FONT;
+    ctx.font = smallF; ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.textAlign = "left";
+    ctx.fillText("atmosphere", 8, yAtm + 14);
+
+    /* sunlight beam: entry into the slab */
+    let ent;
+    if (sun.y >= yAtm) ent = { x: sun.x, y: sun.y };
+    else {
+      const f = (yAtm - sun.y) / (eye.y - sun.y);
+      ent = { x: sun.x + (eye.x - sun.x) * f, y: yAtm };
+    }
+    /* above the slab: clean white beam */
+    ctx.strokeStyle = "rgba(255,250,235,0.85)"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(sun.x, sun.y); ctx.lineTo(ent.x, ent.y); ctx.stroke();
+    /* inside the slab: colour drains from white → transmitted colour */
+    const SEG = 9;
+    for (let k = 0; k < SEG; k++) {
+      const s0 = k / SEG, s1 = (k + 1) / SEG, sm = (s0 + s1) / 2;
+      let br2 = 255 * Math.exp(-TAU_R * m * sm),
+          bg2 = 244 * Math.exp(-TAU_G * m * sm),
+          bb2 = 224 * Math.exp(-TAU_B * m * sm);
+      const mm = Math.max(br2, bg2, bb2);
+      ctx.strokeStyle = "rgba(" + Math.round(br2 * 255 / mm) + "," + Math.round(bg2 * 255 / mm) + "," + Math.round(bb2 * 255 / mm) + ",0.9)";
+      ctx.beginPath();
+      ctx.moveTo(Sim.lerp(ent.x, eye.x, s0), Sim.lerp(ent.y, eye.y, s0));
+      ctx.lineTo(Sim.lerp(ent.x, eye.x, s1), Sim.lerp(ent.y, eye.y, s1));
+      ctx.stroke();
+    }
+
+    /* blue scatter flashes along the beam (∝ 1/λ⁴, and they fade once blue is used up) */
+    const bx = eye.x - ent.x, by = eye.y - ent.y;
+    const bl = Math.hypot(bx, by) || 1;
+    const px = -by / bl, py = bx / bl;   // perpendicular
+    for (let k = 0; k < dots.length; k++) {
+      const d = dots[k];
+      const blueLeft = Math.exp(-TAU_B * m * d.s);
+      const tw = 0.55 + 0.45 * Math.sin(time * 3 + d.ph);
+      ctx.globalAlpha = Sim.clamp((0.12 + 0.75 * blueLeft) * tw, 0, 1);
+      ctx.fillStyle = blueLeft > 0.35 ? "#8ecdff" : "#ffd9a6";
+      const dx = ent.x + bx * d.s + px * d.o, dy = ent.y + by * d.s + py * d.o;
+      if (dy > yAtm && dy < gy) {
+        ctx.beginPath(); ctx.arc(dx, dy, 2.2, 0, 7); ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    /* ground + observer */
+    const dl = 0.35 + 0.65 * Math.sin(elev);
+    ctx.fillStyle = "rgb(" + Math.round(64 * dl) + "," + Math.round(96 * dl) + "," + Math.round(58 * dl) + ")";
+    ctx.fillRect(0, gy, w, h - gy);
+    ctx.strokeStyle = "#20242e"; ctx.fillStyle = "#20242e"; ctx.lineWidth = 2.5; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.arc(ox, gy - 24, 5, 0, 7); ctx.fill();          // head
+    ctx.beginPath();
+    ctx.moveTo(ox, gy - 19); ctx.lineTo(ox, gy - 8);                      // body
+    ctx.moveTo(ox, gy - 8); ctx.lineTo(ox - 5, gy);                       // legs
+    ctx.moveTo(ox, gy - 8); ctx.lineTo(ox + 5, gy);
+    ctx.moveTo(ox - 6, gy - 15); ctx.lineTo(ox + 6, gy - 15);             // arms
+    ctx.stroke();
+
+    /* captions on the ground strip */
+    let cap;
+    if (t < 0.33) cap = w < 480 ? "Noon: short path — a little blue scatters → blue sky"
+      : "Noon: short path through air — a little blue scatters sideways → blue sky, white-ish sun";
+    else if (t < 0.75) cap = w < 480 ? "Slanting light: longer path — more blue lost"
+      : "Evening: slanting light travels a longer path — more and more blue is scattered away";
+    else cap = w < 480 ? "Sunset: blue nearly all gone → red-orange"
+      : "Sunset: almost all the blue is scattered out before reaching you → sun and sky glow red-orange";
+    ctx.font = "700 " + Math.min(15, Math.max(11, Math.round(w / 34))) + "px " + FONT;
+    ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.textAlign = "center";
+    ctx.fillText(cap, w / 2, gy + (h - gy) / 2 + 1);
+    ctx.font = smallF; ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.fillText(w < 480 ? "blue scatters ~10× more than red (1/λ⁴)" :
+      "blue scatters ~10× more than red (1/λ⁴) — you can drag the sun across the sky", w / 2, h - 7);
+    ctx.textAlign = "left";
+
+    setRead(0, "sun height", (elev / D2R).toFixed(0) + "° up");
+    setRead(1, "path through air", "× " + m.toFixed(1));
+    setRead(2, "blue reaching you", Math.round(tB * 100) + " %");
+    setRead(3, "red reaching you", Math.round(tR * 100) + " %");
+  }
+
+  /* ---------- main loop ---------- */
+  function draw(dt, time) {
+    const c = Sim.colors();
+    ctx.clearRect(0, 0, view.w, view.h);
+    if (preset.on) {
+      preset.t += dt;
+      tod.set(Math.min(100, (preset.t / 8) * 100));
+      if (preset.t > 8.2) preset.on = false;
+    }
+    if (mode === "prism") drawPrism(c, time);
+    else drawSky(c, time);
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

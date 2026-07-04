@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Physics Lab — Interactive CBSE Class 9 & 10 Simulations</title>
+<meta name="description" content="Free, open-source interactive physics simulations for CBSE Class 9 and 10 — motion, forces, energy, sound, light, electricity and magnetism. Works on any phone. No login, no ads.">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/sim.js"></script>
+</head>
+<body>
+
+<header class="top">
+  <h1 style="font-size:16px">⚛️ Physics Lab</h1>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<section class="hero">
+  <h1>See the physics, <span class="grad">not just the formula.</span></h1>
+  <p>Free interactive simulations for the hardest CBSE Class 9 &amp; 10 physics concepts.
+     Drag, push, and play with real physics — on any phone, no app, no login, no cost.</p>
+</section>
+
+<nav class="filters" aria-label="Filter simulations">
+  <button class="btn on" data-f="all">All 15</button>
+  <button class="btn" data-f="c9">Class 9</button>
+  <button class="btn" data-f="c10">Class 10</button>
+  <button class="btn" data-f="motion">Motion &amp; Force</button>
+  <button class="btn" data-f="energy">Energy</button>
+  <button class="btn" data-f="sound">Sound</button>
+  <button class="btn" data-f="light">Light</button>
+  <button class="btn" data-f="elec">Electricity</button>
+  <button class="btn" data-f="mag">Magnetism</button>
+</nav>
+
+<main class="grid" id="grid">
+
+  <a class="card" href="sims/motion-graphs.html" data-tags="c9 motion">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <line x1="24" y1="76" x2="146" y2="76" stroke="var(--muted)" stroke-width="1.5"/>
+      <line x1="24" y1="76" x2="24" y2="12" stroke="var(--muted)" stroke-width="1.5"/>
+      <polyline points="24,72 60,34 96,34 132,64" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round"/>
+      <circle cx="96" cy="34" r="5" fill="var(--hot)"/>
+      <rect x="112" y="14" width="26" height="12" rx="3" fill="var(--accent-2)"/>
+      <circle cx="118" cy="28" r="3.4" fill="var(--ink)"/><circle cx="132" cy="28" r="3.4" fill="var(--ink)"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Motion Graphs</div>
+      <div class="desc">Drag the graph and watch the vehicle move to match it. Slope and area finally make sense.</div>
+      <div class="meta"><span class="chip c9">Class 9</span><span class="tag">Motion</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/newtons-laws.html" data-tags="c9 motion">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <line x1="10" y1="68" x2="150" y2="68" stroke="var(--muted)" stroke-width="2"/>
+      <rect x="62" y="38" width="34" height="30" rx="4" fill="var(--accent-2)"/>
+      <line x1="26" y1="53" x2="58" y2="53" stroke="var(--accent)" stroke-width="4"/>
+      <path d="M58 47 L68 53 L58 59 Z" fill="var(--accent)"/>
+      <line x1="118" y1="53" x2="102" y2="53" stroke="var(--hot)" stroke-width="3"/>
+      <path d="M102 48.5 L95 53 L102 57.5 Z" fill="var(--hot)"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Newton's Laws</div>
+      <div class="desc">Push crates of different mass, toggle friction, and feel F&nbsp;=&nbsp;ma happen.</div>
+      <div class="meta"><span class="chip c9">Class 9</span><span class="tag">Force</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/momentum-collisions.html" data-tags="c9 motion">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <line x1="8" y1="66" x2="152" y2="66" stroke="var(--muted)" stroke-width="2"/>
+      <rect x="26" y="36" width="38" height="26" rx="4" fill="var(--accent)"/>
+      <circle cx="36" cy="66" r="5" fill="var(--ink)"/><circle cx="54" cy="66" r="5" fill="var(--ink)"/>
+      <rect x="104" y="44" width="24" height="18" rx="4" fill="var(--hot)"/>
+      <circle cx="110" cy="66" r="4" fill="var(--ink)"/><circle cx="122" cy="66" r="4" fill="var(--ink)"/>
+      <line x1="68" y1="48" x2="88" y2="48" stroke="var(--accent)" stroke-width="3.5"/>
+      <path d="M88 43 L97 48 L88 53 Z" fill="var(--accent)"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Momentum &amp; Collisions</div>
+      <div class="desc">Crash carts together — elastic or sticky — and watch total momentum refuse to change.</div>
+      <div class="meta"><span class="chip c9">Class 9</span><span class="tag">Momentum</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/gravitation-free-fall.html" data-tags="c9 motion">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <rect x="16" y="10" width="34" height="70" rx="3" fill="var(--surface-2)" stroke="var(--border)"/>
+      <circle cx="78" cy="22" r="7" fill="var(--hot)"/>
+      <circle cx="78" cy="40" r="2.4" fill="var(--muted)"/><circle cx="78" cy="52" r="2.4" fill="var(--muted)"/><circle cx="78" cy="67" r="2.4" fill="var(--muted)"/>
+      <path d="M112 24 q10 4 18 -2 q-2 10 -14 10 q-8 0 -4 -8z" fill="var(--accent-2)"/>
+      <path d="M118 44 q6 3 11 -1" stroke="var(--muted)" fill="none" stroke-width="2"/>
+      <line x1="8" y1="82" x2="152" y2="82" stroke="var(--muted)" stroke-width="2"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Gravitation &amp; Free Fall</div>
+      <div class="desc">Drop a ball and a feather — with air, without air, and on the Moon. Mass vs weight, settled.</div>
+      <div class="meta"><span class="chip c9">Class 9</span><span class="tag">Gravity</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/work-energy.html" data-tags="c9 energy">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <path d="M8 26 Q40 26 58 56 Q74 80 96 62 Q114 47 124 47" fill="none" stroke="var(--muted)" stroke-width="3"/>
+      <circle cx="22" cy="27" r="8" fill="var(--accent)"/>
+      <rect x="132" y="24" width="8" height="52" rx="2" fill="var(--cool)"/>
+      <rect x="144" y="42" width="8" height="34" rx="2" fill="var(--accent)"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Work &amp; Energy</div>
+      <div class="desc">Ride the roller-coaster and watch kinetic and potential energy trade places, joule for joule.</div>
+      <div class="meta"><span class="chip c9">Class 9</span><span class="tag">Energy</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/sound-waves.html" data-tags="c9 sound">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <path d="M14 30 L26 30 L40 18 L40 44 L26 32 L14 32 Z" fill="var(--accent-2)"/>
+      <path d="M52 31 q7 -18 14 0 q7 18 14 0 q7 -18 14 0 q7 18 14 0 q7 -18 14 0" fill="none" stroke="var(--accent)" stroke-width="3"/>
+      <g fill="var(--muted)">
+        <circle cx="56" cy="68" r="2.5"/><circle cx="63" cy="68" r="2.5"/><circle cx="68" cy="68" r="2.5"/>
+        <circle cx="84" cy="68" r="2.5"/><circle cx="97" cy="68" r="2.5"/><circle cx="104" cy="68" r="2.5"/>
+        <circle cx="109" cy="68" r="2.5"/><circle cx="126" cy="68" r="2.5"/><circle cx="138" cy="68" r="2.5"/>
+      </g>
+    </svg></div>
+    <div class="body">
+      <div class="title">Sound Waves</div>
+      <div class="desc">See — and actually hear — how frequency makes pitch and amplitude makes loudness.</div>
+      <div class="meta"><span class="chip c9">Class 9</span><span class="tag">Sound</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/mirrors.html" data-tags="c10 light">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <path d="M126 12 Q108 45 126 78" fill="none" stroke="var(--ink)" stroke-width="3"/>
+      <line x1="10" y1="45" x2="150" y2="45" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 4"/>
+      <line x1="34" y1="45" x2="34" y2="22" stroke="var(--accent)" stroke-width="3.5"/>
+      <path d="M29 24 L34 14 L39 24 Z" fill="var(--accent)"/>
+      <line x1="34" y1="20" x2="118" y2="20" stroke="var(--warm)" stroke-width="2"/>
+      <line x1="118" y1="20" x2="66" y2="62" stroke="var(--warm)" stroke-width="2"/>
+      <line x1="34" y1="20" x2="118" y2="42" stroke="var(--hot)" stroke-width="2"/>
+      <line x1="66" y1="45" x2="66" y2="62" stroke="var(--accent)" stroke-width="3" opacity=".65"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Curved Mirrors</div>
+      <div class="desc">Slide a candle along a concave mirror's axis and watch the ray diagram — and the image — flip live.</div>
+      <div class="meta"><span class="chip c10">Class 10</span><span class="tag">Light</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/lenses.html" data-tags="c10 light">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <ellipse cx="80" cy="45" rx="9" ry="34" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>
+      <line x1="8" y1="45" x2="152" y2="45" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 4"/>
+      <line x1="28" y1="45" x2="28" y2="24" stroke="var(--accent-2)" stroke-width="3.5"/>
+      <line x1="28" y1="24" x2="80" y2="24" stroke="var(--warm)" stroke-width="2"/>
+      <line x1="80" y1="24" x2="128" y2="62" stroke="var(--warm)" stroke-width="2"/>
+      <line x1="28" y1="24" x2="128" y2="62" stroke="var(--hot)" stroke-width="2"/>
+      <line x1="128" y1="45" x2="128" y2="62" stroke="var(--accent-2)" stroke-width="3" opacity=".65"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Refraction &amp; Lenses</div>
+      <div class="desc">Bend light through convex and concave lenses — and find the magnifying-glass moment.</div>
+      <div class="meta"><span class="chip c10">Class 10</span><span class="tag">Light</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/mirror-lens-formula.html" data-tags="c10 light">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <text x="80" y="38" text-anchor="middle" font-family="ui-monospace,monospace" font-size="17" font-weight="700" fill="var(--accent)">1/v + 1/u = 1/f</text>
+      <line x1="16" y1="64" x2="144" y2="64" stroke="var(--muted)" stroke-width="2"/>
+      <line x1="44" y1="58" x2="44" y2="70" stroke="var(--hot)" stroke-width="2.5"/>
+      <line x1="80" y1="58" x2="80" y2="70" stroke="var(--muted)" stroke-width="2.5"/>
+      <line x1="116" y1="58" x2="116" y2="70" stroke="var(--accent-2)" stroke-width="2.5"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Mirror &amp; Lens Formula</div>
+      <div class="desc">The formula with live numbers you control — signs, magnification and all, no fear left.</div>
+      <div class="meta"><span class="chip c10">Class 10</span><span class="tag">Light</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/dispersion-scattering.html" data-tags="c10 light">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <path d="M80 16 L104 66 L56 66 Z" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>
+      <line x1="12" y1="40" x2="70" y2="46" stroke="var(--ink)" stroke-width="2.5"/>
+      <line x1="88" y1="50" x2="142" y2="34" stroke="#e11d48" stroke-width="2.5"/>
+      <line x1="88" y1="52" x2="142" y2="46" stroke="#f59e0b" stroke-width="2.5"/>
+      <line x1="88" y1="54" x2="142" y2="58" stroke="#16a34a" stroke-width="2.5"/>
+      <line x1="88" y1="56" x2="142" y2="70" stroke="#4f46e5" stroke-width="2.5"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Dispersion &amp; Scattering</div>
+      <div class="desc">Split white light with a prism, then find out why the sky is blue and sunsets are red.</div>
+      <div class="meta"><span class="chip c10">Class 10</span><span class="tag">Light</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/human-eye.html" data-tags="c10 light">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <circle cx="98" cy="45" r="30" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="2.5"/>
+      <ellipse cx="74" cy="45" rx="6" ry="13" fill="var(--cool)" opacity=".8"/>
+      <line x1="12" y1="30" x2="74" y2="40" stroke="var(--warm)" stroke-width="2"/>
+      <line x1="12" y1="60" x2="74" y2="50" stroke="var(--warm)" stroke-width="2"/>
+      <line x1="74" y1="40" x2="126" y2="47" stroke="var(--warm)" stroke-width="2"/>
+      <line x1="74" y1="50" x2="126" y2="43" stroke="var(--warm)" stroke-width="2"/>
+      <circle cx="126" cy="45" r="3" fill="var(--hot)"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">The Human Eye</div>
+      <div class="desc">Watch your lens change shape to focus — then see myopia, hypermetropia, and the specs that fix them.</div>
+      <div class="meta"><span class="chip c10">Class 10</span><span class="tag">Light</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/ohms-law.html" data-tags="c10 elec">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <line x1="24" y1="76" x2="146" y2="76" stroke="var(--muted)" stroke-width="1.5"/>
+      <line x1="24" y1="76" x2="24" y2="12" stroke="var(--muted)" stroke-width="1.5"/>
+      <line x1="24" y1="76" x2="130" y2="20" stroke="var(--accent)" stroke-width="3"/>
+      <circle cx="88" cy="45" r="5.5" fill="var(--hot)"/>
+      <path d="M34 22 l6 0 3 -6 6 12 6 -12 6 12 3 -6 6 0" fill="none" stroke="var(--warm)" stroke-width="2.5"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Ohm's Law</div>
+      <div class="desc">Turn up the voltage, watch the current follow a perfect straight line. V = IR, live.</div>
+      <div class="meta"><span class="chip c10">Class 10</span><span class="tag">Electricity</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/circuits.html" data-tags="c10 elec">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <rect x="14" y="20" width="56" height="52" rx="6" fill="none" stroke="var(--muted)" stroke-width="2"/>
+      <circle cx="32" cy="20" r="7" fill="var(--warm-soft)" stroke="var(--warm)" stroke-width="2"/>
+      <circle cx="52" cy="20" r="7" fill="var(--warm-soft)" stroke="var(--warm)" stroke-width="2"/>
+      <rect x="90" y="20" width="56" height="52" rx="6" fill="none" stroke="var(--muted)" stroke-width="2"/>
+      <line x1="90" y1="46" x2="146" y2="46" stroke="var(--muted)" stroke-width="2"/>
+      <circle cx="118" cy="20" r="7" fill="var(--warm-soft)" stroke="var(--warm)" stroke-width="2"/>
+      <circle cx="118" cy="46" r="7" fill="var(--warm-soft)" stroke="var(--warm)" stroke-width="2"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Series vs Parallel</div>
+      <div class="desc">Add bulbs to both circuits, then fuse one — and see why Diwali lights die together but your house doesn't.</div>
+      <div class="meta"><span class="chip c10">Class 10</span><span class="tag">Electricity</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/electric-power.html" data-tags="c10 elec">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <path d="M40 18 q0 22 8 30 m8 -30 q0 22 -8 30 m-14 -34 h28" stroke="var(--hot)" stroke-width="3" fill="none"/>
+      <rect x="86" y="26" width="54" height="38" rx="5" fill="var(--surface-2)" stroke="var(--border)"/>
+      <text x="113" y="51" text-anchor="middle" font-family="ui-monospace,monospace" font-size="15" font-weight="700" fill="var(--accent-2)">₹ 4.20</text>
+      <line x1="10" y1="74" x2="150" y2="74" stroke="var(--muted)" stroke-width="1.5"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Electric Power &amp; Heating</div>
+      <div class="desc">P = VI, and what a geyser really costs per hour. Watch the meter — and the rupees — tick.</div>
+      <div class="meta"><span class="chip c10">Class 10</span><span class="tag">Electricity</span></div>
+    </div>
+  </a>
+
+  <a class="card" href="sims/magnetism-motor.html" data-tags="c10 mag">
+    <div class="thumb"><svg viewBox="0 0 160 90" aria-hidden="true">
+      <rect x="12" y="30" width="24" height="30" rx="3" fill="var(--hot)" opacity=".85"/>
+      <rect x="124" y="30" width="24" height="30" rx="3" fill="var(--cool)" opacity=".85"/>
+      <text x="24" y="50" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">N</text>
+      <text x="136" y="50" text-anchor="middle" font-size="13" font-weight="800" fill="#fff">S</text>
+      <ellipse cx="80" cy="45" rx="26" ry="14" fill="none" stroke="var(--accent)" stroke-width="3" transform="rotate(-24 80 45)"/>
+      <circle cx="80" cy="45" r="4" fill="var(--warm)"/>
+    </svg></div>
+    <div class="body">
+      <div class="title">Magnetism &amp; Motors</div>
+      <div class="desc">Field lines, the right-hand rule, a spinning motor — and a generator you crank yourself.</div>
+      <div class="meta"><span class="chip c10">Class 10</span><span class="tag">Magnetism</span></div>
+    </div>
+  </a>
+
+</main>
+
+<footer class="site">
+  <p>Free &amp; open source (MIT) · Built for CBSE Class 9–10 · Works offline once loaded ·
+     <a href="https://github.com/" rel="noopener">Source on GitHub</a></p>
+</footer>
+
+<script>
+(function () {
+  const chips = document.querySelectorAll(".filters .btn");
+  const cards = document.querySelectorAll("#grid .card");
+  chips.forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      chips.forEach(c => c.classList.remove("on"));
+      chip.classList.add("on");
+      const f = chip.dataset.f;
+      cards.forEach(function (card) {
+        card.style.display =
+          (f === "all" || card.dataset.tags.split(" ").indexOf(f) !== -1) ? "" : "none";
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

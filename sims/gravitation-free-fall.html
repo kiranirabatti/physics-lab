@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gravitation &amp; Free Fall — Physics Lab</title>
+<meta name="description" content="Drop a cricket ball and a sheet of paper from a 45 m tower on Earth, the Moon or Jupiter. See why everything falls equally fast without air — and why mass is not weight. CBSE Class 9.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Gravitation &amp; Free Fall</h1>
+  <span class="chip c9">Class 9</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <canvas id="stage" aria-label="A 45 metre tower. A cricket ball and a sheet of paper drop side by side; ghost dots show their spacing growing as they accelerate."></canvas>
+
+    <div class="btn-row" role="group" aria-label="Choose planet and conditions">
+      <div class="seg" id="planetSeg" role="group" aria-label="Planet">
+        <button class="btn on" data-planet="earth">Earth</button>
+        <button class="btn" data-planet="moon">Moon</button>
+        <button class="btn" data-planet="jupiter">Jupiter</button>
+      </div>
+      <button class="btn" id="airBtn" aria-pressed="false">Air resistance: OFF</button>
+      <button class="btn" id="slowBtn" aria-pressed="false">Slow-mo ¼×: OFF</button>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: hammer &amp; feather on the Moon</button>
+      <button class="btn" id="dropBtn">Drop</button>
+      <button class="btn" id="resetBtn">Reset</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>Gravity gives <b>every</b> object the same acceleration <b>g</b> — a cricket ball and a sheet of paper speed up identically. The paper only floats down slowly on Earth because <b>air</b> pushes back on its big flat surface, not because it is light.</p>
+      <p>And here's the trap every exam sets: <b>mass</b> is the amount of matter in an object — it never changes, anywhere in the universe. <b>Weight</b> is the force of gravity pulling on that mass, W&nbsp;=&nbsp;mg. Change the planet and the weight changes — the mass doesn't.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">W = m × g &nbsp;·&nbsp; v = g·t &nbsp;·&nbsp; h = ½·g·t²</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">Time</div><div class="v" id="rTime">0.00 s</div></div>
+        <div class="readout"><div class="k">Weight of ball W = mg (changes with planet!)</div><div class="v" id="rW">—</div></div>
+        <div class="readout"><div class="k">Ball speed</div><div class="v" id="rVb">0.0 m/s</div></div>
+        <div class="readout"><div class="k">Paper speed</div><div class="v" id="rVp">0.0 m/s</div></div>
+        <div class="readout"><div class="k">Mass of ball (never changes)</div><div class="v">0.16 kg</div></div>
+        <div class="readout"><div class="k">Mass of paper (never changes)</div><div class="v">0.01 kg</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> on Earth, turn air resistance <b>ON</b> and drop — the ball wins easily while the paper flutters at a steady ~2 m/s (be patient, real paper really is that slow — its trail dots become evenly spaced, meaning constant speed!). Now turn air <b>OFF</b> and drop again: they land at exactly the same moment. Then visit Jupiter — the ball's mass stays 0.16 kg but its weight jumps to almost 4 N.</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 16 / 10, maxH: 520 });
+  const ctx = view.ctx;
+  const FF = getComputedStyle(document.body).fontFamily;
+
+  /* ---------- physics constants (SI) ---------- */
+  const H0 = 45;                 // drop height, m
+  const RHO = 1.2;               // air density kg/m^3
+  const BALL  = { m: 0.16, k: 0.5 * RHO * 0.47 * 0.0042 }; // cricket ball: Cd 0.47, A 0.0042 m^2
+  const PAPER = { m: 0.01, k: 0.5 * RHO * 1.3  * 0.03   }; // fluttering sheet: Cd 1.3, A 0.03 m^2 -> vt ≈ 2 m/s
+  const PLANETS = {
+    earth:   { g: 9.8,  air: true,  label: "Earth"   },
+    moon:    { g: 1.6,  air: false, label: "Moon"    },
+    jupiter: { g: 24.8, air: true,  label: "Jupiter" }
+  };
+
+  let planet = "earth", airOn = false, slow = false;
+  let phase = "ready";           // ready | run | done
+  let t = 0, trailClock = 0, apollo = 0;
+  const ball  = { h: H0, v: 0, land: -1, trail: [] };
+  const paper = { h: H0, v: 0, land: -1, trail: [] };
+
+  const rTime = document.getElementById("rTime");
+  const rVb = document.getElementById("rVb");
+  const rVp = document.getElementById("rVp");
+  const rW  = document.getElementById("rW");
+
+  function g() { return PLANETS[planet].g; }
+  function airEff() { return airOn && PLANETS[planet].air; }
+
+  /* ---------- controls ---------- */
+  const segBtns = Array.prototype.slice.call(document.querySelectorAll("#planetSeg .btn"));
+  segBtns.forEach(function (b) {
+    b.addEventListener("click", function () { setPlanet(b.getAttribute("data-planet")); });
+  });
+  function setPlanet(p) {
+    planet = p;
+    segBtns.forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-planet") === p); });
+    reset();
+  }
+  const airBtn = document.getElementById("airBtn");
+  airBtn.addEventListener("click", function () { setAir(!airOn); });
+  function setAir(on) {
+    airOn = on;
+    airBtn.textContent = "Air resistance: " + (on ? "ON" : "OFF");
+    airBtn.classList.toggle("on", on);
+    airBtn.setAttribute("aria-pressed", String(on));
+  }
+  const slowBtn = document.getElementById("slowBtn");
+  slowBtn.addEventListener("click", function () { setSlow(!slow); });
+  function setSlow(on) {
+    slow = on;
+    slowBtn.textContent = "Slow-mo ¼×: " + (on ? "ON" : "OFF");
+    slowBtn.classList.toggle("on", on);
+    slowBtn.setAttribute("aria-pressed", String(on));
+  }
+
+  function reset() {
+    phase = "ready"; t = 0; trailClock = 0; apollo = 0;
+    ball.h = paper.h = H0; ball.v = paper.v = 0;
+    ball.land = paper.land = -1;
+    ball.trail.length = 0; paper.trail.length = 0;
+  }
+  function drop() { reset(); phase = "run"; }
+
+  document.getElementById("dropBtn").addEventListener("click", drop);
+  document.getElementById("resetBtn").addEventListener("click", reset);
+  document.getElementById("preset").addEventListener("click", function () {
+    setPlanet("moon");
+    setAir(false);
+    setSlow(false);
+    drop();
+    apollo = 14;
+  });
+
+  /* tap the canvas: drop when ready, reset when done */
+  Sim.pointer(view.el, {
+    down: function () {
+      if (phase === "ready") drop();
+      else if (phase === "done") reset();
+    }
+  });
+
+  /* ---------- physics ---------- */
+  function stepObj(o, P, hstep) {
+    if (o.land >= 0) return;
+    let a = g();
+    if (airEff()) a -= (P.k * o.v * o.v / P.m) * (o.v >= 0 ? 1 : -1);
+    o.v += a * hstep;
+    o.h -= o.v * hstep;
+    if (o.h <= 0) { o.h = 0; o.land = t; }
+  }
+  function physics(dt) {
+    if (phase !== "run") return;
+    const dts = dt * (slow ? 0.25 : 1);
+    const n = 4, hstep = dts / n;
+    for (let i = 0; i < n; i++) {
+      if (ball.land < 0 || paper.land < 0) t += hstep;
+      stepObj(ball, BALL, hstep);
+      stepObj(paper, PAPER, hstep);
+    }
+    trailClock += dts;
+    if (trailClock >= 0.1) {
+      trailClock -= 0.1;
+      if (ball.land < 0) ball.trail.push(ball.h);
+      if (paper.land < 0) paper.trail.push(paper.h);
+    }
+    if (ball.land >= 0 && paper.land >= 0) phase = "done";
+  }
+
+  /* ---------- drawing helpers ---------- */
+  function line(x1, y1, x2, y2) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  function pill(lines, cx, y, c) {
+    ctx.font = "600 12.5px " + FF;
+    let mw = 0;
+    for (let i = 0; i < lines.length; i++) mw = Math.max(mw, ctx.measureText(lines[i]).width);
+    const pw = mw + 26, ph = lines.length * 17 + 12;
+    const x = Sim.clamp(cx - pw / 2, 6, view.w - pw - 6);
+    Sim.rr(ctx, x, y, pw, ph, 10);
+    ctx.fillStyle = c.surface; ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = c.ink; ctx.textAlign = "center";
+    for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], x + pw / 2, y + 21 + i * 17);
+    ctx.textAlign = "left";
+  }
+
+  /* ---------- main draw ---------- */
+  function draw(dt) {
+    physics(dt);
+    if (apollo > 0) apollo -= dt;
+    const c = Sim.colors();
+    const w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+
+    const gy = h - 34, topY = 42;
+    const ppm = (gy - topY) / H0;
+    function yOf(hm) { return gy - hm * ppm; }
+
+    const tx0 = 48, tx1 = tx0 + Math.max(26, w * 0.06);
+    const beamEnd = w * 0.82;
+    const bx  = tx1 + (beamEnd - tx1) * 0.35;   // ball lane
+    const pxl = tx1 + (beamEnd - tx1) * 0.75;   // paper lane
+
+    /* height grid + ruler */
+    ctx.strokeStyle = c.grid; ctx.lineWidth = 1;
+    ctx.font = "600 10px " + FF; ctx.fillStyle = c.muted; ctx.textAlign = "left";
+    for (let hm = 0; hm <= 40; hm += 10) {
+      line(44, yOf(hm), w - 8, yOf(hm));
+      ctx.fillText(hm + " m", 6, yOf(hm) + 3);
+    }
+    ctx.fillText("45 m", 6, yOf(45) + 3);
+
+    /* ground */
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, gy, w, h - gy);
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 2;
+    line(0, gy, w, gy);
+
+    /* tower + release beam */
+    const py = yOf(H0);
+    ctx.fillStyle = c.surface2;
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1.5;
+    ctx.fillRect(tx0, py, tx1 - tx0, gy - py);
+    ctx.strokeRect(tx0, py, tx1 - tx0, gy - py);
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1;
+    for (let yb = py + 26; yb < gy - 14; yb += 34) {
+      line(tx0, yb, tx1, yb + 26);
+      line(tx1, yb, tx0, yb + 26);
+    }
+    /* platform with two trapdoor gaps (trapdoors close when ready, open on Drop) */
+    ctx.fillStyle = c.border;
+    ctx.fillRect(tx0 - 3, py, (bx - 20) - (tx0 - 3), 5);
+    ctx.fillRect(bx + 20, py, (pxl - 20) - (bx + 20), 5);
+    ctx.fillRect(pxl + 20, py, beamEnd - (pxl + 20), 5);
+    if (phase === "ready") {
+      ctx.fillStyle = c.muted;
+      ctx.fillRect(bx - 20, py + 1, 40, 3);
+      ctx.fillRect(pxl - 20, py + 1, 40, 3);
+    }
+
+    /* ghost trails (dots every 0.1 s — spacing shows acceleration) */
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = c.accent;
+    ctx.beginPath();
+    for (let i = 0; i < ball.trail.length; i++) {
+      const y = yOf(ball.trail[i]) - 9;
+      ctx.moveTo(bx + 2.2, y); ctx.arc(bx, y, 2.2, 0, 7);
+    }
+    ctx.fill();
+    ctx.fillStyle = c.warm;
+    ctx.beginPath();
+    for (let i = 0; i < paper.trail.length; i++) {
+      const y = yOf(paper.trail[i]) - 4;
+      ctx.moveTo(pxl + 2.2, y); ctx.arc(pxl, y, 2.2, 0, 7);
+    }
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    /* cricket ball */
+    const bcy = yOf(ball.h) - 9;
+    ctx.fillStyle = c.hot;
+    ctx.beginPath(); ctx.arc(bx, bcy, 9, 0, 7); ctx.fill();
+    ctx.strokeStyle = c.canvasBg; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(bx - 3, bcy, 8, -1.1, 1.1); ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    /* paper sheet (sways only when air is actually acting) */
+    const swayOn = airEff() && paper.land < 0 && phase !== "ready";
+    const swayAmt = swayOn ? Math.min(paper.v / 2, 1) : 0;
+    const pcx = pxl + Math.sin(t * 5) * 12 * swayAmt;
+    const pcy = yOf(paper.h) - 4;
+    ctx.save();
+    ctx.translate(pcx, pcy);
+    ctx.rotate(Math.sin(t * 5 + 1) * 0.35 * swayAmt);
+    ctx.fillStyle = c.surface;
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 1.2;
+    Sim.rr(ctx, -15, -4, 30, 8, 2);
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+
+    /* velocity arrows */
+    ctx.strokeStyle = c.cool; ctx.fillStyle = c.cool; ctx.lineWidth = 2;
+    if (ball.land < 0 && ball.v > 0.4)
+      Sim.arrow(ctx, bx + 18, bcy, bx + 18, bcy + Math.min(ball.v * 1.6, 52), 7);
+    if (paper.land < 0 && paper.v > 0.4)
+      Sim.arrow(ctx, pxl + 24, pcy, pxl + 24, pcy + Math.min(paper.v * 1.6, 52), 7);
+
+    /* terminal velocity caption for the paper */
+    if (swayOn) {
+      const vt = Math.sqrt(PAPER.m * g() / PAPER.k);
+      if (paper.v > 0.97 * vt) {
+        ctx.fillStyle = c.warm; ctx.font = "600 11px " + FF; ctx.textAlign = "center";
+        ctx.fillText("terminal velocity ≈ " + Sim.fmt(vt, 1) + " m/s", pcx, pcy - 18);
+        ctx.fillText("drag balances weight", pcx, pcy - 6);
+        ctx.textAlign = "left";
+      }
+    }
+
+    /* lane labels + landing times */
+    ctx.font = "600 11px " + FF; ctx.textAlign = "center";
+    ctx.fillStyle = c.muted;
+    ctx.fillText("cricket ball · 0.16 kg", bx, gy + 14);
+    ctx.fillText("paper sheet · 0.01 kg", pxl, gy + 14);
+    ctx.fillStyle = c.accent2;
+    if (ball.land >= 0)  ctx.fillText("landed at " + Sim.fmt(ball.land) + " s", bx, gy + 27);
+    if (paper.land >= 0) ctx.fillText("landed at " + Sim.fmt(paper.land) + " s", pxl, gy + 27);
+    ctx.textAlign = "left";
+
+    /* planet info, top-right */
+    ctx.textAlign = "right";
+    ctx.fillStyle = c.ink; ctx.font = "700 13px " + FF;
+    ctx.fillText(PLANETS[planet].label + " · g = " + g() + " m/s²", w - 12, 18);
+    ctx.font = "600 11px " + FF;
+    if (airOn && !PLANETS[planet].air) {
+      ctx.fillStyle = c.warm;
+      ctx.fillText("air resistance OFF — the Moon has no air!", w - 12, 33);
+    } else {
+      ctx.fillStyle = c.muted;
+      ctx.fillText("air resistance " + (airOn ? "ON" : "OFF"), w - 12, 33);
+    }
+    ctx.textAlign = "left";
+
+    /* captions */
+    if (apollo > 0) {
+      pill(["Apollo 15 really did this on the Moon —",
+            "hammer & feather landed together!"], w / 2, 44, c);
+    } else if (phase === "done" && !airEff() && Math.abs(ball.land - paper.land) < 0.05) {
+      pill(["Both landed together — same g for every mass!"], w / 2, 44, c);
+    } else if (phase === "ready") {
+      ctx.fillStyle = c.muted; ctx.font = "600 12px " + FF; ctx.textAlign = "center";
+      ctx.fillText("press Drop — or tap the canvas", (tx1 + beamEnd) / 2, yOf(22));
+      ctx.textAlign = "left";
+    }
+
+    /* readouts */
+    rTime.textContent = Sim.fmt(t) + " s";
+    rVb.textContent = Sim.fmt(ball.v, 1) + " m/s" + (ball.land >= 0 ? " ✓" : "");
+    rVp.textContent = Sim.fmt(paper.v, 1) + " m/s" + (paper.land >= 0 ? " ✓" : "");
+    rW.textContent = Sim.fmt(BALL.m * g()) + " N";
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

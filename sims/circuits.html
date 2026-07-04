@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Series vs Parallel Circuits — Physics Lab</title>
+<meta name="description" content="Interactive series vs parallel circuit simulation: same battery, two boards. Add bulbs, tap one to fuse it, and see why Diwali string lights die together but home wiring doesn't. CBSE Class 10.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+<style>
+  .bulbrow{display:flex;gap:18px;flex-wrap:wrap;align-items:center;padding-top:3px}
+  .grp{display:inline-flex;align-items:center;gap:7px}
+  .grp .glab{font:600 13px var(--font);color:var(--muted)}
+  .grp .btn{min-width:44px;padding:6px 0;font-size:16px}
+  .grp output{font:700 15px var(--mono);min-width:16px;text-align:center}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Series vs Parallel Circuits</h1>
+  <span class="chip c10">Class 10</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <canvas id="stage" aria-label="Two circuit boards sharing the same battery voltage: a series loop of bulbs on one, parallel branches on the other. Tap any bulb to fuse it."></canvas>
+
+    <div class="controls">
+      <div class="ctl">
+        <div class="lab"><label for="volt">Battery voltage (both boards)</label><output id="voltOut"></output></div>
+        <input type="range" id="volt" min="3" max="12" step="0.5" value="6">
+      </div>
+      <div class="ctl">
+        <div class="lab"><span>Bulbs (4 Ω each)</span></div>
+        <div class="bulbrow">
+          <span class="grp"><span class="glab">Series</span>
+            <button class="btn" id="sMinus" aria-label="Remove a series bulb">−</button><output id="sCount">2</output><button class="btn" id="sPlus" aria-label="Add a series bulb">+</button>
+          </span>
+          <span class="grp"><span class="glab">Parallel</span>
+            <button class="btn" id="pMinus" aria-label="Remove a parallel bulb">−</button><output id="pCount">2</output><button class="btn" id="pPlus" aria-label="Add a parallel bulb">+</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: one bulb fuses (Diwali lights)</button>
+      <button class="btn" id="fixAll">Fix all bulbs</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>Both boards run from the <b>same battery</b>. On the <b>series</b> board the bulbs sit in one loop, like a string of Diwali lights — the same current squeezes through every bulb, and they <i>share</i> the battery's voltage. Add more bulbs and every bulb dims.</p>
+      <p>On the <b>parallel</b> board each bulb has its own branch getting the <b>full</b> battery voltage — add more and they all stay just as bright. The battery simply pushes out more total current. Your home is wired this way, so the fridge doesn't dim when you switch on the fan.</p>
+      <p>And a fused bulb? In series it breaks the only path — the <b>whole string dies</b>. In parallel, only its own branch stops.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">Series: R<sub>eq</sub> = R₁ + R₂ + … (same I)</div>
+      <div class="formula" style="margin-top:8px">Parallel: 1/R<sub>eq</sub> = 1/R₁ + 1/R₂ + … (same V)</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">Series: current</div><div class="v" id="rSI">—</div></div>
+        <div class="readout"><div class="k">Series: each bulb</div><div class="v" id="rSP">—</div></div>
+        <div class="readout"><div class="k">Parallel: battery I</div><div class="v" id="rPI">—</div></div>
+        <div class="readout"><div class="k">Parallel: each bulb</div><div class="v" id="rPP">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> put 4 bulbs on each board. Series: all four turn gloomy. Parallel: all four blaze at full brightness — but check the battery current, it's 4× bigger! Now tap one bulb on each board to fuse it. Which board survives?</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const R = 4;          // ohms per bulb
+  const PFULL = 9;      // W — one bulb alone across 6 V = "full brightness"
+  const PXA = 30;       // dot speed, px/s per ampere
+  const CAPH = 54;      // caption strip height
+  const HINT = "💡 Tap any bulb to fuse it — tap again to fix it. Watch what each board does.";
+
+  const cvs = document.getElementById("stage");
+  function fitNarrow(v) {
+    if (v.w < 620) {
+      const hh = Sim.clamp(Math.round(v.w * 1.15), 330,
+        Math.max(330, Math.min(560, window.innerHeight - 210)));
+      if (hh !== v.h) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        v.el.style.height = hh + "px";
+        v.el.height = Math.round(hh * dpr);
+        v.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        v.h = hh;
+      }
+    }
+  }
+  const view = Sim.canvas(cvs, { aspect: 16 / 8.2, maxH: 470, onResize: fitNarrow });
+  const ctx = view.ctx;
+  const FF = getComputedStyle(document.body).fontFamily;
+
+  /* ---------- state ---------- */
+  let nS = 2, nP = 2;
+  const fusedS = [false, false, false, false];
+  const fusedP = [false, false, false, false];
+  let caption = "";
+  let seq = null;
+
+  const dotsS = [];
+  for (let i = 0; i < 16; i++) dotsS.push(i / 16);
+  const dotsP = [];
+  for (let b = 0; b < 4; b++) {
+    const a = [];
+    for (let i = 0; i < 12; i++) a.push(i / 12 + b * 0.021);
+    dotsP.push(a);
+  }
+
+  const rSI = document.getElementById("rSI"), rSP = document.getElementById("rSP");
+  const rPI = document.getElementById("rPI"), rPP = document.getElementById("rPP");
+  const sCount = document.getElementById("sCount"), pCount = document.getElementById("pCount");
+
+  const volt = Sim.slider("volt", function (v) { return v.toFixed(1) + " V"; }, function () { syncUI(); });
+
+  /* ---------- physics (object reused every frame — no allocation) ---------- */
+  const st = { V: 6, brokenS: false, ReqS: 8, IS: 0, VbS: 0, PbS: 0, mP: 2, ReqP: 2, IP: 0, IbrP: 0, PbP: 0 };
+  function calc() {
+    const V = volt();
+    st.V = V;
+    st.brokenS = false;
+    for (let i = 0; i < nS; i++) if (fusedS[i]) st.brokenS = true;
+    st.ReqS = nS * R;                       // series: resistances add
+    st.IS = st.brokenS ? 0 : V / st.ReqS;   // same current everywhere
+    st.VbS = st.brokenS ? 0 : V / nS;       // voltage shared equally
+    st.PbS = st.IS * st.IS * R;             // P = I²R per bulb
+    st.mP = 0;
+    for (let i = 0; i < nP; i++) if (!fusedP[i]) st.mP++;
+    st.IbrP = V / R;                        // each branch sees full V
+    st.IP = st.mP * V / R;                  // battery supplies the sum
+    st.ReqP = st.mP ? R / st.mP : Infinity;
+    st.PbP = V * V / R;                     // P = V²/R per working bulb
+  }
+
+  function syncUI() {
+    sCount.textContent = nS;
+    pCount.textContent = nP;
+    calc();
+    rSI.textContent = st.brokenS ? "0 A — open!" : Sim.fmt(st.IS, 2) + " A";
+    rSP.textContent = st.brokenS ? "0 W (dark)" : powTxt(st.PbS);
+    rPI.textContent = Sim.fmt(st.IP, 2) + " A";
+    rPP.textContent = st.mP ? powTxt(st.PbP) : "0 W (all fused)";
+  }
+  function powTxt(P) { return (P < 0.995 ? Sim.fmt(P, 2) : Sim.fmt(P, 1)) + " W"; }
+
+  /* ---------- geometry (cached; rebuilt only when size/count changes) ---------- */
+  let geo = null, geoKey = "";
+  function makePath(pts) {
+    const segs = []; let total = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const L = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+      segs.push({ a: pts[i], b: pts[i + 1], L: L });
+      total += L;
+    }
+    return { segs: segs, total: total };
+  }
+  const PT = { x: 0, y: 0 };
+  function pointOnPath(path, t) {
+    let d = (t - Math.floor(t)) * path.total;
+    for (let i = 0; i < path.segs.length; i++) {
+      const s = path.segs[i];
+      if (d <= s.L) {
+        const k = s.L ? d / s.L : 0;
+        PT.x = Sim.lerp(s.a.x, s.b.x, k);
+        PT.y = Sim.lerp(s.a.y, s.b.y, k);
+        return PT;
+      }
+      d -= s.L;
+    }
+    PT.x = path.segs[0].a.x; PT.y = path.segs[0].a.y;
+    return PT;
+  }
+
+  function boardGeo(b, n, parallel) {
+    const L = b.x + 54, R2 = b.x + b.w - 16;
+    const T = b.y + 40, Bo = b.y + b.h - 30, my = (T + Bo) / 2;
+    const span = R2 - L;
+    const rB = Sim.clamp(Math.min(14, span / (n + 1) * 0.32, (Bo - T) * 0.2), 8, 14);
+    const bulbs = [], loops = [];
+    if (!parallel) {
+      for (let i = 0; i < n; i++) bulbs.push({ x: L + span * (i + 1) / (n + 1), y: T });
+      loops.push(makePath([{x:L,y:my},{x:L,y:T},{x:R2,y:T},{x:R2,y:Bo},{x:L,y:Bo},{x:L,y:my}]));
+    } else {
+      for (let i = 0; i < n; i++) {
+        const x = L + span * (i + 1) / (n + 1);
+        bulbs.push({ x: x, y: my });
+        loops.push(makePath([{x:L,y:my},{x:L,y:T},{x:x,y:T},{x:x,y:Bo},{x:L,y:Bo},{x:L,y:my}]));
+      }
+    }
+    return { b: b, L: L, R2: R2, T: T, Bo: Bo, my: my, rB: rB, bulbs: bulbs, loops: loops, n: n };
+  }
+
+  function layout() {
+    const w = view.w, h = view.h;
+    const key = w + "," + h + "," + nS + "," + nP;
+    if (geo && key === geoKey) return geo;
+    geoKey = key;
+    const wide = w >= 620;
+    let bS, bP;
+    if (wide) {
+      const bw = (w - 28) / 2;
+      bS = { x: 10, y: 6, w: bw, h: h - CAPH - 12 };
+      bP = { x: 18 + bw, y: 6, w: bw, h: h - CAPH - 12 };
+    } else {
+      const bh = (h - CAPH - 16) / 2;
+      bS = { x: 6, y: 4, w: w - 12, h: bh };
+      bP = { x: 6, y: 10 + bh, w: w - 12, h: bh };
+    }
+    geo = { S: boardGeo(bS, nS, false), P: boardGeo(bP, nP, true) };
+    return geo;
+  }
+
+  /* ---------- current dots ---------- */
+  function advance(dt, g) {
+    const spS = st.IS * PXA;
+    if (spS > 0) {
+      const d = spS * dt / g.S.loops[0].total;
+      for (let i = 0; i < dotsS.length; i++) dotsS[i] = (dotsS[i] + d) % 1;
+    }
+    for (let k = 0; k < nP; k++) {
+      if (fusedP[k]) continue;
+      const d = st.IbrP * PXA * dt / g.P.loops[k].total;
+      const arr = dotsP[k];
+      for (let i = 0; i < arr.length; i++) arr[i] = (arr[i] + d) % 1;
+    }
+  }
+
+  /* ---------- colour helpers ---------- */
+  const hexCache = {};
+  function px3(hex) {
+    let c = hexCache[hex];
+    if (!c) {
+      let h = hex.replace("#", "");
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      c = hexCache[hex] = [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    }
+    return c;
+  }
+  function rgba(hex, a) {
+    const c = px3(hex);
+    return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
+  }
+
+  function fontPx(px, wgt) { return (wgt || 600) + " " + px + "px " + FF; }
+
+  /* ---------- drawing pieces ---------- */
+  function label(txt, x, y, color, px, bg) {
+    ctx.font = fontPx(px);
+    ctx.textAlign = "center";
+    if (bg) {                       // outline for readability over wires/glow
+      ctx.strokeStyle = bg;
+      ctx.lineWidth = 3;
+      ctx.lineJoin = "round";
+      ctx.strokeText(txt, x, y);
+    }
+    ctx.fillStyle = color;
+    ctx.fillText(txt, x, y);
+    ctx.textAlign = "left";
+  }
+
+  function boardFrame(c, b) {
+    Sim.rr(ctx, b.x, b.y, b.w, b.h, 12);
+    ctx.strokeStyle = c.grid;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  function glowAt(c, x, y, r, b) {
+    if (b <= 0.02) return;
+    const bb = Math.min(b, 1.15);                    // cap the glow
+    const rad = r + 6 + 26 * bb;
+    const g = ctx.createRadialGradient(x, y, r * 0.2, x, y, rad);
+    g.addColorStop(0, rgba(c.warm, Math.min(0.8, 0.15 + 0.65 * bb)));
+    g.addColorStop(1, rgba(c.warm, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.fill();
+  }
+
+  function drawBattery(c, G) {
+    const L = G.L, my = G.my;
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(L - 13, my - 7); ctx.lineTo(L + 13, my - 7); ctx.stroke();
+    ctx.lineWidth = 4.5;
+    ctx.beginPath(); ctx.moveTo(L - 6, my + 7); ctx.lineTo(L + 6, my + 7); ctx.stroke();
+    ctx.fillStyle = c.muted;
+    ctx.font = fontPx(10);
+    ctx.fillText("+", L + 16, my - 4);
+    ctx.fillText("−", L + 16, my + 12);
+    ctx.font = fontPx(11.5, 700);
+    ctx.fillStyle = c.accent;
+    ctx.textAlign = "right";
+    ctx.fillText(st.V.toFixed(1) + " V", L - 16, my + 4);
+    ctx.textAlign = "left";
+  }
+
+  function drawDotLoop(c, path, arr, live) {
+    ctx.fillStyle = c.accent;
+    ctx.globalAlpha = live ? 0.95 : 0.18;
+    for (let i = 0; i < arr.length; i++) {
+      const p = pointOnPath(path, arr[i]);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 2.6, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawBulb(c, x, y, r, b, fused) {
+    ctx.fillStyle = c.surface;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    if (!fused && b > 0.02) {
+      ctx.fillStyle = rgba(c.warm, Math.min(0.55, b * 0.55));
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    }
+    ctx.strokeStyle = fused ? c.muted : c.ink;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke();
+    const k = r * 0.7;
+    ctx.lineWidth = 1.8;
+    if (!fused) {
+      ctx.beginPath();
+      ctx.moveTo(x - k, y - k); ctx.lineTo(x + k, y + k);
+      ctx.moveTo(x - k, y + k); ctx.lineTo(x + k, y - k);
+      ctx.stroke();
+    } else {
+      const g2 = k * 0.42;   // filament with a break in the middle
+      ctx.beginPath();
+      ctx.moveTo(x - k, y - k); ctx.lineTo(x - g2, y - g2);
+      ctx.moveTo(x + g2, y + g2); ctx.lineTo(x + k, y + k);
+      ctx.moveTo(x - k, y + k); ctx.lineTo(x - g2, y + g2);
+      ctx.moveTo(x + g2, y - g2); ctx.lineTo(x + k, y - k);
+      ctx.stroke();
+      ctx.strokeStyle = c.hot;                       // small ✕ at the break
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 3.5, y - 3.5); ctx.lineTo(x + 3.5, y + 3.5);
+      ctx.moveTo(x - 3.5, y + 3.5); ctx.lineTo(x + 3.5, y - 3.5);
+      ctx.stroke();
+    }
+  }
+
+  function drawSeries(c, G) {
+    boardFrame(c, G.b);
+    for (let i = 0; i < G.n; i++)
+      if (!fusedS[i]) glowAt(c, G.bulbs[i].x, G.bulbs[i].y, G.rB, st.PbS / PFULL);
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(G.L, G.my - 7); ctx.lineTo(G.L, G.T); ctx.lineTo(G.R2, G.T);
+    ctx.lineTo(G.R2, G.Bo); ctx.lineTo(G.L, G.Bo); ctx.lineTo(G.L, G.my + 7);
+    ctx.stroke();
+    drawBattery(c, G);
+    drawDotLoop(c, G.loops[0], dotsS, st.IS > 1e-9);
+    for (let i = 0; i < G.n; i++) {
+      const bl = G.bulbs[i];
+      drawBulb(c, bl.x, bl.y, G.rB, st.PbS / PFULL, fusedS[i]);
+      label(fusedS[i] ? "✕ fused" : powTxt(st.PbS), bl.x, bl.y + G.rB + 15,
+            fusedS[i] ? c.hot : c.muted, 10.5, null);
+    }
+    label("SERIES · " + G.n + (G.n > 1 ? " bulbs, one loop" : " bulb"),
+          G.b.x + G.b.w / 2, G.b.y + 18, c.accent, 12.5, null);
+    const line = st.brokenS
+      ? "OPEN circuit — I = 0 A (one fused bulb breaks the loop)"
+      : "R = " + st.ReqS.toFixed(0) + " Ω     I = " + Sim.fmt(st.IS, 2) + " A     each bulb: " + Sim.fmt(st.VbS, 1) + " V";
+    label(line, G.b.x + G.b.w / 2, G.b.y + G.b.h - 9,
+          st.brokenS ? c.hot : c.ink, G.b.w < 380 ? 10.5 : 11.5, null);
+  }
+
+  function drawParallel(c, G) {
+    boardFrame(c, G.b);
+    for (let i = 0; i < G.n; i++)
+      if (!fusedP[i]) glowAt(c, G.bulbs[i].x, G.bulbs[i].y, G.rB, st.PbP / PFULL);
+    const lastX = G.bulbs[G.n - 1].x;
+    ctx.strokeStyle = c.ink;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(G.L, G.my - 7); ctx.lineTo(G.L, G.T); ctx.lineTo(lastX, G.T);
+    ctx.moveTo(G.L, G.my + 7); ctx.lineTo(G.L, G.Bo); ctx.lineTo(lastX, G.Bo);
+    for (let i = 0; i < G.n; i++) {
+      ctx.moveTo(G.bulbs[i].x, G.T);
+      ctx.lineTo(G.bulbs[i].x, G.Bo);
+    }
+    ctx.stroke();
+    ctx.fillStyle = c.ink;                       // junction dots
+    for (let i = 0; i < G.n - 1; i++) {
+      ctx.beginPath(); ctx.arc(G.bulbs[i].x, G.T, 3, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(G.bulbs[i].x, G.Bo, 3, 0, 7); ctx.fill();
+    }
+    drawBattery(c, G);
+    for (let k = 0; k < G.n; k++)
+      drawDotLoop(c, G.loops[k], dotsP[k], !fusedP[k] && st.V > 0);
+    for (let i = 0; i < G.n; i++) {
+      const bl = G.bulbs[i];
+      drawBulb(c, bl.x, bl.y, G.rB, st.PbP / PFULL, fusedP[i]);
+      label(fusedP[i] ? "✕ fused" : powTxt(st.PbP), bl.x, bl.y + G.rB + 15,
+            fusedP[i] ? c.hot : c.muted, 10.5, c.canvasBg);
+    }
+    label("PARALLEL · " + G.n + (G.n > 1 ? " branches" : " branch"),
+          G.b.x + G.b.w / 2, G.b.y + 18, c.accent2, 12.5, null);
+    const line = st.mP === 0
+      ? "all branches fused — battery I = 0 A"
+      : "R = " + (st.mP ? Sim.fmt(st.ReqP, st.ReqP < 10 ? 1 : 0) : "∞") + " Ω     battery I = " + Sim.fmt(st.IP, 2) + " A     each branch: " + st.V.toFixed(1) + " V";
+    label(line, G.b.x + G.b.w / 2, G.b.y + G.b.h - 9,
+          st.mP === 0 ? c.hot : c.ink, G.b.w < 380 ? 10.5 : 11.5, null);
+  }
+
+  function wrap(txt, maxW) {
+    const words = txt.split(" ");
+    const lines = [];
+    let cur = "";
+    for (let i = 0; i < words.length; i++) {
+      const t = cur ? cur + " " + words[i] : words[i];
+      if (cur && ctx.measureText(t).width > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = t;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  function drawCaption(c) {
+    const w = view.w, bh = CAPH - 10, y = view.h - CAPH + 4;
+    ctx.fillStyle = c.surface2;
+    Sim.rr(ctx, 8, y, w - 16, bh, 10);
+    ctx.fill();
+    ctx.strokeStyle = c.border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.font = fontPx(11.5);
+    const lines = wrap(caption || HINT, w - 48);
+    ctx.fillStyle = caption ? c.ink : c.muted;
+    ctx.textAlign = "center";
+    const lh = 14;
+    const n = Math.min(lines.length, 3);
+    const y0 = y + bh / 2 - (n - 1) * lh / 2 + 4;
+    for (let i = 0; i < n; i++) ctx.fillText(lines[i], w / 2, y0 + i * lh);
+    ctx.textAlign = "left";
+  }
+
+  /* ---------- interaction ---------- */
+  function hitBoard(G, arr, p) {
+    const r = Math.max(24, G.rB + 10);
+    for (let i = 0; i < G.n; i++) {
+      const bl = G.bulbs[i], dx = p.x - bl.x, dy = p.y - bl.y;
+      if (dx * dx + dy * dy <= r * r) { arr[i] = !arr[i]; return { fused: arr[i] }; }
+    }
+    return null;
+  }
+  Sim.pointer(cvs, {
+    down: function (p) {
+      const g = layout();
+      let hit = hitBoard(g.S, fusedS, p), which = "S";
+      if (!hit) { hit = hitBoard(g.P, fusedP, p); which = "P"; }
+      if (hit) {
+        seq = null;
+        caption = !hit.fused ? "" : (which === "S"
+          ? "Fused! The series loop is broken — current stops everywhere and every bulb goes dark."
+          : "Fused! Only that branch stops. The other bulbs keep full brightness — the battery just supplies less current.");
+        syncUI();
+      }
+    }
+  });
+
+  function bind(id, fn) { document.getElementById(id).addEventListener("click", fn); }
+  bind("sPlus",  function () { if (nS < 4) { nS++; fusedS[nS - 1] = false; syncUI(); } });
+  bind("sMinus", function () { if (nS > 1) { nS--; fusedS[nS] = false; syncUI(); } });
+  bind("pPlus",  function () { if (nP < 4) { nP++; fusedP[nP - 1] = false; syncUI(); } });
+  bind("pMinus", function () { if (nP > 1) { nP--; fusedP[nP] = false; syncUI(); } });
+  bind("fixAll", function () {
+    for (let i = 0; i < 4; i++) { fusedS[i] = false; fusedP[i] = false; }
+    seq = null;
+    caption = "";
+    syncUI();
+  });
+  bind("preset", function () {
+    nS = 3; nP = 3;
+    for (let i = 0; i < 4; i++) { fusedS[i] = false; fusedP[i] = false; }
+    volt.set(6);
+    caption = "Same battery, 3 bulbs on each board. Watch what ONE fused bulb does…";
+    seq = { t: 0, i: 0, steps: [
+      { at: 2.0, run: function () {
+          fusedS[1] = true;
+          caption = "Series: one bulb fuses → the WHOLE string goes dark. One dead bulb switches off the entire Diwali string.";
+      } },
+      { at: 6.2, run: function () {
+          fusedP[1] = true;
+          caption = "Parallel: the same fuse — and the other bulbs don't even notice. This is exactly how your house is wired.";
+      } }
+    ] };
+    syncUI();
+  });
+
+  /* ---------- main loop ---------- */
+  function draw(dt) {
+    if (dt < 0) dt = 0;      // guard: first rAF timestamp can precede loop start
+    const c = Sim.colors();
+    ctx.clearRect(0, 0, view.w, view.h);
+    if (seq) {
+      seq.t += dt;
+      while (seq.i < seq.steps.length && seq.t >= seq.steps[seq.i].at) {
+        seq.steps[seq.i].run();
+        seq.i++;
+        syncUI();
+      }
+      if (seq && seq.i >= seq.steps.length) seq = null;
+    }
+    calc();
+    const g = layout();
+    advance(dt, g);
+    drawSeries(c, g.S);
+    drawParallel(c, g.P);
+    drawCaption(c);
+  }
+
+  syncUI();
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ohm's Law — Physics Lab</title>
+<meta name="description" content="Interactive Ohm's law simulation: change voltage and resistance, watch the current and the V–I graph respond live. CBSE Class 10.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Ohm's Law</h1>
+  <span class="chip c10">Class 10</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <canvas id="stage" aria-label="Circuit with a battery and resistor, and a live voltage–current graph"></canvas>
+
+    <div class="controls">
+      <div class="ctl">
+        <div class="lab"><label for="volt">Voltage V</label><output id="voltOut"></output></div>
+        <input type="range" id="volt" min="0" max="12" step="0.1" value="6">
+      </div>
+      <div class="ctl">
+        <div class="lab"><label for="res">Resistance R</label><output id="resOut"></output></div>
+        <input type="range" id="res" min="1" max="20" step="0.5" value="4">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: plot the V–I line</button>
+      <button class="btn" id="clear">Clear graph</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>The battery pushes charge around the circuit — that push is <b>voltage</b>. The resistor makes it hard for charge to flow. The <b>current</b> is how much charge actually flows every second.</p>
+      <p>Double the voltage → double the current. Double the resistance → half the current. That simple proportion is Ohm's law.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">V = I × R &nbsp;&nbsp;→&nbsp;&nbsp; I = V / R</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">Current I</div><div class="v" id="rI">—</div></div>
+        <div class="readout"><div class="k">Slope 1/R</div><div class="v" id="rSlope">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> set R to 4 Ω and slowly raise V from 0 to 12. The dots you plot form a perfectly straight line through the origin — that straight line <i>is</i> Ohm's law. Now change R and watch the line tilt.</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 16/8.5, maxH: 460 });
+  const ctx = view.ctx;
+
+  const rI = document.getElementById("rI");
+  const rSlope = document.getElementById("rSlope");
+
+  let points = [];           // plotted {V, I, R} dots on the graph
+  let electrons = [];        // phase 0..1 positions along the wire path
+  for (let i = 0; i < 14; i++) electrons.push(i / 14);
+
+  const volt = Sim.slider("volt", v => v.toFixed(1) + " V", changed);
+  const res  = Sim.slider("res",  v => v.toFixed(1) + " Ω", changed);
+
+  function I() { return volt() / res(); }
+
+  function changed() {
+    rI.textContent = Sim.fmt(I(), 2) + " A";
+    rSlope.textContent = Sim.fmt(1 / res(), 3) + " A/V";
+  }
+  changed();
+
+  /* ---- "Show me" preset: sweep V and plot the straight line ---- */
+  let sweeping = false, sweepT = 0;
+  document.getElementById("preset").addEventListener("click", function () {
+    points = [];
+    sweeping = true; sweepT = 0;
+  });
+  document.getElementById("clear").addEventListener("click", function () { points = []; });
+
+  /* tapping the graph plots the current point */
+  Sim.pointer(view.el, {
+    down: function (p) {
+      const g = graphRect();
+      if (p.x > g.x) points.push({ V: volt(), I: I(), R: res() });
+    }
+  });
+
+  function graphRect() {
+    const w = view.w, h = view.h;
+    const gx = Math.round(w * 0.52);
+    return { x: gx, y: 16, w: w - gx - 14, h: h - 58 };
+  }
+
+  const IMAX = 4;  // amps shown on graph axis
+
+  function draw(dt) {
+    const c = Sim.colors();
+    const w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+
+    /* sweep animation */
+    if (sweeping) {
+      sweepT += dt * 3.2;
+      const v = Math.min(12, sweepT);
+      volt.set(Math.round(v * 10) / 10);
+      if (Math.floor(v * 2) > points.length - 1 && v > 0.2)
+        points.push({ V: v, I: v / res(), R: res() });
+      if (v >= 12) sweeping = false;
+    }
+
+    /* electron drift speed ∝ current */
+    const speed = I() * 0.05;
+    electrons = electrons.map(p => (p + speed * dt) % 1);
+
+    drawCircuit(c, w, h);
+    drawGraph(c);
+  }
+
+  /* ---- circuit: battery (left), resistor (top), meters ---- */
+  function drawCircuit(c, w, h) {
+    const x0 = 26, x1 = w * 0.46, y0 = 34, y1 = h - 66;
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = c.ink;
+    ctx.lineJoin = "round";
+
+    const rx = (x0 + x1) / 2 - 34, rw = 68;   // resistor span on top wire
+
+    /* wire path (rectangle), leaving a gap for battery + resistor */
+    ctx.beginPath();
+    ctx.moveTo(x0, y0 + 40);           // below battery top terminal... battery on left side
+    ctx.moveTo(rx, y0);
+    ctx.lineTo(x0, y0);                // top-left
+    ctx.lineTo(x0, (y0+y1)/2 - 14);    // down to battery
+    ctx.moveTo(x0, (y0+y1)/2 + 14);
+    ctx.lineTo(x0, y1);                // battery to bottom-left
+    ctx.lineTo(x1, y1);                // bottom
+    ctx.lineTo(x1, y0);                // up right side
+    ctx.lineTo(rx + rw, y0);           // to resistor right end
+    ctx.stroke();
+
+    /* battery symbol */
+    const by = (y0 + y1) / 2;
+    ctx.beginPath();
+    ctx.moveTo(x0 - 13, by - 14); ctx.lineTo(x0 + 13, by - 14);  // long plate (+)
+    ctx.moveTo(x0 - 6,  by + 14); ctx.lineTo(x0 + 6,  by + 14);  // short plate (−)
+    ctx.stroke();
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 12px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillText("+", x0 + 17, by - 10);
+    ctx.fillText("−", x0 + 17, by + 19);
+    ctx.fillStyle = c.accent;
+    ctx.font = "700 13px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillText(volt().toFixed(1) + " V", x0 + 30, by + 4);
+
+    /* resistor zigzag on top wire */
+    ctx.strokeStyle = c.warm;
+    ctx.beginPath();
+    ctx.moveTo(rx, y0);
+    const n = 6, seg = rw / n;
+    for (let i = 0; i < n; i++)
+      ctx.lineTo(rx + seg * (i + 0.5), y0 + (i % 2 ? 9 : -9));
+    ctx.lineTo(rx + rw, y0);
+    ctx.stroke();
+    ctx.fillStyle = c.warm;
+    ctx.textAlign = "center";
+    ctx.fillText(res().toFixed(1) + " Ω", rx + rw / 2, y0 - 16);
+
+    /* ammeter on bottom wire */
+    const ax = (x0 + x1) / 2;
+    ctx.fillStyle = c.canvasBg;
+    ctx.strokeStyle = c.cool;
+    ctx.beginPath(); ctx.arc(ax, y1, 15, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = c.cool;
+    ctx.fillText("A", ax, y1 + 4.5);
+    ctx.fillText(Sim.fmt(I(), 2) + " A", ax, y1 + 33);
+    ctx.textAlign = "left";
+
+    /* electrons drifting (conventional current direction: + → resistor → −) */
+    const path = wirePath(x0, x1, y0, y1);
+    ctx.fillStyle = c.accent;
+    for (const p of electrons) {
+      const pt = pointOnPath(path, p);
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 3, 0, 7); ctx.fill();
+    }
+  }
+
+  function wirePath(x0, x1, y0, y1) {
+    /* clockwise loop as segments */
+    const pts = [ {x:x0,y:y0}, {x:x1,y:y0}, {x:x1,y:y1}, {x:x0,y:y1}, {x:x0,y:y0} ];
+    const segs = []; let total = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const L = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y);
+      segs.push({ a: pts[i], b: pts[i+1], L: L }); total += L;
+    }
+    return { segs, total };
+  }
+  function pointOnPath(path, t) {
+    let d = t * path.total;
+    for (const s of path.segs) {
+      if (d <= s.L) {
+        const k = d / s.L;
+        return { x: Sim.lerp(s.a.x, s.b.x, k), y: Sim.lerp(s.a.y, s.b.y, k) };
+      }
+      d -= s.L;
+    }
+    return path.segs[0].a;
+  }
+
+  /* ---- V–I graph ---- */
+  function drawGraph(c) {
+    const g = graphRect();
+    ctx.save();
+
+    /* frame + grid */
+    ctx.strokeStyle = c.grid;
+    ctx.lineWidth = 1;
+    for (let v = 0; v <= 12; v += 2) {
+      const x = g.x + (v / 12) * g.w;
+      ctx.beginPath(); ctx.moveTo(x, g.y); ctx.lineTo(x, g.y + g.h); ctx.stroke();
+    }
+    for (let i = 0; i <= IMAX; i++) {
+      const y = g.y + g.h - (i / IMAX) * g.h;
+      ctx.beginPath(); ctx.moveTo(g.x, y); ctx.lineTo(g.x + g.w, y); ctx.stroke();
+    }
+    ctx.strokeStyle = c.muted;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(g.x, g.y); ctx.lineTo(g.x, g.y + g.h); ctx.lineTo(g.x + g.w, g.y + g.h);
+    ctx.stroke();
+
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 11px " + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = "center";
+    ctx.fillText("Voltage V (volts) →", g.x + g.w / 2, g.y + g.h + 30);
+    for (let v = 0; v <= 12; v += 4) ctx.fillText(v, g.x + (v/12)*g.w, g.y + g.h + 14);
+    ctx.save();
+    ctx.translate(g.x - 10, g.y + g.h / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText("Current I (A) →", 0, 0);
+    ctx.restore();
+
+    /* theoretical line for current R */
+    const iAt12 = Math.min(12 / res(), IMAX);
+    const vEnd = iAt12 * res();
+    ctx.strokeStyle = c.accent2;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(g.x, g.y + g.h);
+    ctx.lineTo(g.x + (vEnd / 12) * g.w, g.y + g.h - (iAt12 / IMAX) * g.h);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    /* plotted points */
+    for (const p of points) {
+      const x = g.x + (p.V / 12) * g.w;
+      const y = g.y + g.h - Math.min(p.I / IMAX, 1) * g.h;
+      ctx.fillStyle = c.accent;
+      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 7); ctx.fill();
+    }
+
+    /* live point */
+    const lx = g.x + (volt() / 12) * g.w;
+    const ly = g.y + g.h - Math.min(I() / IMAX, 1) * g.h;
+    ctx.fillStyle = c.hot;
+    ctx.beginPath(); ctx.arc(lx, ly, 6, 0, 7); ctx.fill();
+    ctx.strokeStyle = c.hot;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath(); ctx.arc(lx, ly, 11, 0, 7); ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    ctx.textAlign = "left";
+    ctx.restore();
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

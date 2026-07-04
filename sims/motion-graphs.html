@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion Graphs — Physics Lab</title>
+<meta name="description" content="Drag points to draw s–t and v–t graphs and watch an auto-rickshaw move to match. Slope = velocity, area under v–t = distance. CBSE Class 9.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Motion Graphs</h1>
+  <span class="chip c9">Class 9</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <canvas id="stage" aria-label="A road with an auto-rickshaw on top and an editable motion graph below. Drag the six dots on the graph to change the motion; press play to watch the rickshaw follow it."></canvas>
+
+    <div class="btn-row">
+      <div class="seg" role="group" aria-label="Graph type">
+        <button class="btn on" id="segS" aria-pressed="true">s–t graph</button>
+        <button class="btn" id="segV" aria-pressed="false">v–t graph</button>
+      </div>
+      <button class="btn" id="play">▶ Play</button>
+      <button class="btn" id="reset">↺ Reset</button>
+      <button class="btn primary" id="preset">▶ Show me: home → shop → back home</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>A motion graph is the <b>story of a journey</b>. Here the story belongs to an auto-rickshaw on a straight 100 m road.</p>
+      <p>In the <b>s–t graph</b>, height tells you <i>where</i> the auto is, and the steepness (slope) tells you <i>how fast</i> it moves. A flat line means it is parked. A line sloping down means it is coming back.</p>
+      <p>In the <b>v–t graph</b>, height is the velocity itself, and the shaded area the cursor sweeps out is the <b>distance covered</b>. Below the zero line means moving backwards.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">v = Δs / Δt<br>slope of s–t = velocity<br>area under v–t = distance</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">Time t</div><div class="v" id="rT">—</div></div>
+        <div class="readout"><div class="k">Position s</div><div class="v" id="rS">—</div></div>
+        <div class="readout"><div class="k">Velocity v</div><div class="v" id="rV">—</div></div>
+        <div class="readout"><div class="k" id="rXk">Slope of s–t</div><div class="v" id="rX">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> drag the middle dots of the s–t graph until they make a flat step — press play and the auto stops for a chai break! Then drag a dot <i>lower</i> than the one before it: the slope turns negative and the auto reverses. Switch to the v–t graph to see the same journey as heights instead of slopes.</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 1.25, maxH: 540 });
+  const ctx = view.ctx;
+  const FONT = getComputedStyle(document.body).fontFamily;
+
+  const T = [0, 2, 4, 6, 8, 10], DT = 2, TMAX = 10;
+  let mode = "s";                        // "s" (position) or "v" (velocity)
+  let nodes = [0, 20, 40, 60, 80, 100];  // metres, or m/s in v-mode
+  let s0 = 0;                            // remembered s(0) for v-mode
+  const cum = [0, 0, 0, 0, 0, 0];        // cumulative position at node times (v-mode)
+  let t = 0, playing = false, dragI = -1, scrubbing = false, faceDir = 1;
+
+  const rT = document.getElementById("rT"), rS = document.getElementById("rS"),
+        rV = document.getElementById("rV"), rX = document.getElementById("rX"),
+        rXk = document.getElementById("rXk");
+  const playBtn = document.getElementById("play");
+  const segS = document.getElementById("segS"), segV = document.getElementById("segV");
+
+  /* ---------- motion model ---------- */
+  function computeCum() {
+    if (mode === "v") {
+      cum[0] = s0;
+      for (let i = 0; i < 5; i++) cum[i + 1] = cum[i] + (nodes[i] + nodes[i + 1]) * 0.5 * DT;
+    }
+  }
+  function segAt(tt) { return Sim.clamp(Math.floor(tt / DT), 0, 4); }
+  function posAt(tt) {
+    const k = segAt(tt), tau = tt - T[k];
+    if (mode === "s") return Sim.lerp(nodes[k], nodes[k + 1], tau / DT);
+    const sl = (nodes[k + 1] - nodes[k]) / DT;
+    return cum[k] + nodes[k] * tau + 0.5 * sl * tau * tau;
+  }
+  function velAt(tt) {
+    const k = segAt(tt);
+    if (mode === "s") return (nodes[k + 1] - nodes[k]) / DT;
+    return Sim.lerp(nodes[k], nodes[k + 1], (tt - T[k]) / DT);
+  }
+  /* ---------- mode switching keeps the motion consistent ----------
+     A cornered s–t graph has a step-like v(t), which 6 linear v-nodes
+     can only approximate; so we also remember the exact s-nodes and
+     restore them if the v-graph comes back untouched. */
+  let sSaved = null, vSavedKey = "";
+  function setMode(m2) {
+    if (m2 === mode) return;
+    computeCum();
+    if (m2 === "v") {                       // v–t is the derivative of s–t
+      s0 = nodes[0];
+      sSaved = nodes;
+      const v = [];
+      for (let i = 0; i < 5; i++)
+        v.push(Sim.clamp(Math.round((nodes[i + 1] - nodes[i]) / DT * 2) / 2, -10, 10));
+      v.push(v[4]);
+      vSavedKey = v.join(",");
+      nodes = v;
+    } else if (sSaved && nodes.join(",") === vSavedKey) {
+      nodes = sSaved;                       // v-graph untouched: exact restore
+    } else {                                // s–t is the integral of v–t
+      const s = [Sim.clamp(Math.round(s0), 0, 100)];
+      for (let i = 0; i < 5; i++)
+        s.push(Sim.clamp(Math.round(s[i] + (nodes[i] + nodes[i + 1]) * 0.5 * DT), 0, 100));
+      nodes = s;
+    }
+    mode = m2;
+    segS.classList.toggle("on", mode === "s");
+    segV.classList.toggle("on", mode === "v");
+    segS.setAttribute("aria-pressed", mode === "s");
+    segV.setAttribute("aria-pressed", mode === "v");
+  }
+  segS.addEventListener("click", function () { setMode("s"); });
+  segV.addEventListener("click", function () { setMode("v"); });
+
+  /* ---------- buttons ---------- */
+  function setPlaying(b) {
+    playing = b;
+    playBtn.textContent = b ? "⏸ Pause" : "▶ Play";
+  }
+  playBtn.addEventListener("click", function () {
+    if (!playing && t >= TMAX) t = 0;
+    setPlaying(!playing);
+  });
+  document.getElementById("reset").addEventListener("click", function () {
+    nodes = mode === "s" ? [0, 20, 40, 60, 80, 100] : [4, 4, 4, 4, 4, 4];
+    s0 = 0; t = 0; setPlaying(false);
+  });
+  document.getElementById("preset").addEventListener("click", function () {
+    setMode("s");
+    nodes = [0, 20, 40, 40, 20, 0];   // go → wait at the shop → come back
+    s0 = 0; t = 0; setPlaying(true);
+  });
+
+  /* ---------- geometry ---------- */
+  function graphRect() {
+    const w = view.w, h = view.h;
+    const roadH = Math.max(92, h * 0.27);
+    return { x: 46, y: roadH + 14, w: w - 58, h: h - roadH - 44, roadH: roadH };
+  }
+  function tToX(tt, g) { return g.x + tt / TMAX * g.w; }
+  function valToY(v, g) {
+    return mode === "s" ? g.y + g.h * (1 - v / 100) : g.y + g.h * (0.5 - v / 20);
+  }
+  function yToVal(y, g) {
+    return mode === "s" ? (1 - (y - g.y) / g.h) * 100 : (0.5 - (y - g.y) / g.h) * 20;
+  }
+
+  /* ---------- touch + mouse: drag nodes, scrub time ---------- */
+  Sim.pointer(view.el, {
+    down: function (p) {
+      const g = graphRect();
+      for (let i = 0; i < 6; i++) {
+        const dx = p.x - tToX(T[i], g), dy = p.y - valToY(nodes[i], g);
+        if (dx * dx + dy * dy < 576) { dragI = i; return; }    // 24 px hit radius
+      }
+      if (p.x > g.x - 10 && p.x < g.x + g.w + 10 && p.y > g.y - 10 && p.y < g.y + g.h + 24) {
+        scrubbing = true; setPlaying(false);
+        t = Sim.clamp((p.x - g.x) / g.w * TMAX, 0, TMAX);
+      }
+    },
+    move: function (p) {
+      if (dragI < 0 && !scrubbing) return;
+      const g = graphRect();
+      if (dragI >= 0) {
+        const val = yToVal(p.y, g);
+        nodes[dragI] = mode === "s"
+          ? Sim.clamp(Math.round(val), 0, 100)
+          : Sim.clamp(Math.round(val * 2) / 2, -10, 10);
+      } else {
+        t = Sim.clamp((p.x - g.x) / g.w * TMAX, 0, TMAX);
+      }
+    },
+    up: function () { dragI = -1; scrubbing = false; }
+  });
+
+  /* ---------- drawing ---------- */
+  function draw(dt) {
+    const c = Sim.colors();
+    const w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+    computeCum();
+    if (playing) { t += dt; if (t >= TMAX) { t = TMAX; setPlaying(false); } }
+    const g = graphRect();
+    const sNow = posAt(t), vNow = velAt(t);
+    if (vNow > 0.05) faceDir = 1; else if (vNow < -0.05) faceDir = -1;
+    drawRoad(c, w, g.roadH, sNow);
+    drawGraph(c, g);
+    rT.textContent = Sim.fmt(t, 1) + " s";
+    rS.textContent = Sim.fmt(sNow, 1) + " m";
+    rV.textContent = Sim.fmt(vNow, 2) + " m/s";
+    if (mode === "s") {
+      rXk.textContent = "Slope of s–t";
+      rX.textContent = Sim.fmt(vNow, 2) + " m/s";
+    } else {
+      rXk.textContent = "Area under v–t";
+      rX.textContent = Sim.fmt(sNow - s0, 1) + " m";
+    }
+  }
+
+  function drawRoad(c, w, roadH, sNow) {
+    const base = roadH - 30;
+    const x0 = 30, x1 = w - 30;
+    ctx.fillStyle = c.surface2;
+    ctx.fillRect(0, base, w, 12);
+    ctx.strokeStyle = c.border;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, base); ctx.lineTo(w, base); ctx.stroke();
+    ctx.strokeStyle = c.muted;
+    ctx.setLineDash([10, 12]);
+    ctx.beginPath(); ctx.moveTo(0, base + 6); ctx.lineTo(w, base + 6); ctx.stroke();
+    ctx.setLineDash([]);
+    /* distance markers */
+    ctx.fillStyle = c.muted;
+    ctx.strokeStyle = c.muted;
+    ctx.font = "600 10px " + FONT;
+    ctx.textAlign = "center";
+    for (let sm = 0; sm <= 100; sm += 25) {
+      const x = Sim.lerp(x0, x1, sm / 100);
+      ctx.beginPath(); ctx.moveTo(x, base + 12); ctx.lineTo(x, base + 16); ctx.stroke();
+      ctx.fillText(sm + " m", x, base + 27);
+    }
+    /* landmarks: home at 0 m, shop at 40 m */
+    ctx.font = "15px " + FONT;
+    ctx.fillText("🏠", x0, base - 50);
+    ctx.fillText("🏪", Sim.lerp(x0, x1, 0.4), base - 50);
+    const rx = Sim.lerp(x0, x1, Sim.clamp(sNow, 0, 100) / 100);
+    drawRickshaw(rx, base, faceDir, c);
+    ctx.textAlign = "left";
+  }
+
+  function drawRickshaw(cx, base, dir, c) {
+    ctx.save();
+    ctx.translate(cx, base);
+    if (dir < 0) ctx.scale(-1, 1);
+    /* wheels */
+    ctx.fillStyle = c.ink;
+    ctx.beginPath(); ctx.arc(-15, -8, 8, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(15, -8, 8, 0, 7); ctx.fill();
+    ctx.fillStyle = c.canvasBg;
+    ctx.beginPath(); ctx.arc(-15, -8, 3, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(15, -8, 3, 0, 7); ctx.fill();
+    /* body */
+    ctx.fillStyle = c.warm;
+    Sim.rr(ctx, -27, -38, 48, 28, 7); ctx.fill();
+    /* windshield + passenger window */
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = c.cool;
+    ctx.beginPath(); ctx.moveTo(21, -38); ctx.lineTo(27, -18); ctx.lineTo(21, -18); ctx.closePath(); ctx.fill();
+    Sim.rr(ctx, -20, -33, 15, 12, 3); ctx.fill();
+    ctx.globalAlpha = 1;
+    /* canopy */
+    ctx.fillStyle = c.ink;
+    Sim.rr(ctx, -30, -45, 59, 9, 4); ctx.fill();
+    /* headlight */
+    ctx.fillStyle = c.hot;
+    ctx.beginPath(); ctx.arc(22, -14, 2.5, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawGraph(c, g) {
+    /* grid */
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = c.grid;
+    for (let i = 0; i <= 10; i++) {
+      const x = tToX(i, g);
+      ctx.beginPath(); ctx.moveTo(x, g.y); ctx.lineTo(x, g.y + g.h); ctx.stroke();
+    }
+    const ny = mode === "s" ? 5 : 4;
+    for (let i = 0; i <= ny; i++) {
+      const y = g.y + g.h * i / ny;
+      ctx.beginPath(); ctx.moveTo(g.x, y); ctx.lineTo(g.x + g.w, y); ctx.stroke();
+    }
+    const zy = valToY(0, g);
+    if (mode === "v") {
+      ctx.strokeStyle = c.muted;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(g.x, zy); ctx.lineTo(g.x + g.w, zy); ctx.stroke();
+    }
+    /* area swept so far = distance (v-mode) */
+    if (mode === "v" && t > 0.03) {
+      const k = segAt(t);
+      ctx.beginPath();
+      ctx.moveTo(tToX(0, g), zy);
+      for (let i = 0; i <= k; i++) ctx.lineTo(tToX(T[i], g), valToY(nodes[i], g));
+      ctx.lineTo(tToX(t, g), valToY(velAt(t), g));
+      ctx.lineTo(tToX(t, g), zy);
+      ctx.closePath();
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = c.accent2;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    /* axes */
+    ctx.strokeStyle = c.muted;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(g.x, g.y); ctx.lineTo(g.x, g.y + g.h); ctx.lineTo(g.x + g.w, g.y + g.h);
+    ctx.stroke();
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 10.5px " + FONT;
+    ctx.textAlign = "center";
+    for (let i = 0; i <= 10; i += 2) ctx.fillText(i, tToX(i, g), g.y + g.h + 14);
+    ctx.fillText("time (s) →", g.x + g.w / 2, g.y + g.h + 27);
+    ctx.textAlign = "right";
+    if (mode === "s") {
+      for (let sv = 0; sv <= 100; sv += 20) ctx.fillText(sv, g.x - 5, valToY(sv, g) + 3.5);
+    } else {
+      for (let vv = -10; vv <= 10; vv += 5) ctx.fillText(vv, g.x - 5, valToY(vv, g) + 3.5);
+    }
+    ctx.save();
+    ctx.translate(11, g.y + g.h / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.fillText(mode === "s" ? "position s (m) →" : "velocity v (m/s) →", 0, 0);
+    ctx.restore();
+    ctx.textAlign = "right";
+    ctx.fillText("drag the dots to edit", g.x + g.w - 4, g.y + 12);
+    /* motion line */
+    ctx.strokeStyle = c.accent;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(tToX(0, g), valToY(nodes[0], g));
+    for (let i = 1; i < 6; i++) ctx.lineTo(tToX(T[i], g), valToY(nodes[i], g));
+    ctx.stroke();
+    /* time cursor */
+    const cxp = tToX(t, g);
+    ctx.strokeStyle = c.hot;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cxp, g.y); ctx.lineTo(cxp, g.y + g.h); ctx.stroke();
+    ctx.globalAlpha = 1;
+    /* draggable nodes */
+    for (let i = 0; i < 6; i++) {
+      const x = tToX(T[i], g), y = valToY(nodes[i], g);
+      ctx.beginPath(); ctx.arc(x, y, dragI === i ? 10 : 7.5, 0, 7);
+      ctx.fillStyle = dragI === i ? c.accent : c.surface;
+      ctx.fill();
+      ctx.strokeStyle = c.accent;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+    /* trace dot at the cursor */
+    const ty = valToY(mode === "s" ? posAt(t) : velAt(t), g);
+    ctx.fillStyle = c.hot;
+    ctx.beginPath(); ctx.arc(cxp, ty, 5.5, 0, 7); ctx.fill();
+    ctx.strokeStyle = c.hot;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath(); ctx.arc(cxp, ty, 10, 0, 7); ctx.stroke();
+    ctx.globalAlpha = 1;
+    /* live annotations */
+    if (dragI >= 0 && mode === "s") {
+      for (let k = dragI - 1; k <= dragI; k++) {
+        if (k < 0 || k > 4) continue;
+        const sl = (nodes[k + 1] - nodes[k]) / DT;
+        const mx = tToX(T[k] + 1, g);
+        const my = valToY((nodes[k] + nodes[k + 1]) / 2, g) - 18;
+        pill("slope = " + Sim.fmt(sl, 1) + " m/s = v", mx,
+             Sim.clamp(my, g.y + 12, g.y + g.h - 10), c.accent2, c);
+      }
+    }
+    if (mode === "v" && t > 0.03) {
+      pill("area = Δs = " + Sim.fmt(posAt(t) - s0, 1) + " m",
+           Sim.clamp(cxp, g.x + 70, g.x + g.w - 70),
+           Sim.clamp(zy + 22, g.y + 12, g.y + g.h - 8), c.accent2, c);
+    }
+    ctx.textAlign = "left";
+  }
+
+  function pill(txt, x, y, color, c) {
+    ctx.font = "700 11px " + FONT;
+    const tw = ctx.measureText(txt).width;
+    const px = Sim.clamp(x - tw / 2 - 7, 2, view.w - tw - 16);
+    Sim.rr(ctx, px, y - 10, tw + 14, 20, 10);
+    ctx.fillStyle = c.surface;
+    ctx.globalAlpha = 0.92; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.textAlign = "left";
+    ctx.fillText(txt, px + 7, y + 4);
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

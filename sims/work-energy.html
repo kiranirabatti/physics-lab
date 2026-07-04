@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Work &amp; Energy — Physics Lab</title>
+<meta name="description" content="Drag a ball onto a roller-coaster track and watch potential and kinetic energy trade places while the total stays constant — until friction steals it as heat. CBSE Class 9.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Work &amp; Energy</h1>
+  <span class="chip c9">Class 9</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <canvas id="stage" aria-label="A roller-coaster track with a ball. Drag the ball anywhere on the track and release it. Energy bars beside the track show PE, KE and heat."></canvas>
+
+    <div class="controls">
+      <div class="ctl">
+        <div class="lab"><label for="mass">Mass m</label><output id="massOut"></output></div>
+        <input type="range" id="mass" min="0.5" max="3" step="0.1" value="1">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: release from the top</button>
+      <button class="btn" id="fricBtn" aria-pressed="false">Friction: OFF</button>
+      <button class="btn" id="resetBtn">Reset</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>Lift the ball up the track and you do <b>work</b> against gravity — that work gets stored as <b>potential energy</b> (PE). Let go, and PE turns into <b>kinetic energy</b> (KE) as the ball speeds up. Going uphill, KE turns back into PE. The two keep trading places, but their <b>total never changes</b>.</p>
+      <p>It's exactly like a cycle rolling down a flyover slope without pedalling — height silently becomes speed. Turn <b>friction ON</b> and some energy escapes as <b>heat</b> on every pass: watch the heat bar collect exactly what PE and KE lose.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">PE = mgh &nbsp;·&nbsp; KE = ½mv² &nbsp;·&nbsp; PE + KE = constant</div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">Height h</div><div class="v" id="rH">—</div></div>
+        <div class="readout"><div class="k">Speed v</div><div class="v" id="rV">—</div></div>
+        <div class="readout"><div class="k">PE = mgh</div><div class="v" id="rPE">—</div></div>
+        <div class="readout"><div class="k">KE = ½mv²</div><div class="v" id="rKE">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> release the ball from the big hill with friction OFF — it climbs the far side to <i>exactly</i> its release height (the dashed line), never a centimetre above. Turn friction ON and each swing gets lower while the heat bar grows by the missing amount. Now slide the mass up: the energy numbers grow, but the motion is <b>identical</b> — just like the ball and paper falling together in free fall!</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 16 / 9, maxH: 480 });
+  const ctx = view.ctx;
+  const FF = getComputedStyle(document.body).fontFamily;
+
+  /* ---------- track: piecewise cosine between knots, resampled by arc length ---------- */
+  const KNOTS = [[0, 28], [38, 3], [66, 16], [84, 7], [110, 28]];  // (x, y) in metres
+  const G = 9.8, MU = 0.05;
+  function knotY(x) {
+    for (let i = 0; i < KNOTS.length - 1; i++) {
+      const a = KNOTS[i], b = KNOTS[i + 1];
+      if (x >= a[0] && x <= b[0]) {
+        const tt = (x - a[0]) / (b[0] - a[0]);
+        return a[1] + (b[1] - a[1]) * (1 - Math.cos(Math.PI * tt)) / 2;
+      }
+    }
+    return KNOTS[KNOTS.length - 1][1];
+  }
+  const N = 700;
+  const TX = new Float64Array(N), TY = new Float64Array(N);
+  const SIN = new Float64Array(N), COS = new Float64Array(N);
+  let DS = 0, SMAX = 0, sDip = 0, Y_MIN = 1e9, Y_MAX = -1e9;
+  (function build() {
+    const M = 2200;
+    const xs = new Float64Array(M), ys = new Float64Array(M), cs = new Float64Array(M);
+    let acc = 0;
+    for (let i = 0; i < M; i++) {
+      xs[i] = 110 * i / (M - 1);
+      ys[i] = knotY(xs[i]);
+      if (i) acc += Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
+      cs[i] = acc;
+    }
+    SMAX = acc; DS = SMAX / (N - 1);
+    let j = 0;
+    for (let i = 0; i < N; i++) {
+      const target = i * DS;
+      while (j < M - 2 && cs[j + 1] < target) j++;
+      const f = (target - cs[j]) / Math.max(cs[j + 1] - cs[j], 1e-9);
+      TX[i] = xs[j] + (xs[j + 1] - xs[j]) * f;
+      TY[i] = ys[j] + (ys[j + 1] - ys[j]) * f;
+    }
+    let dipI = 0;
+    for (let i = 0; i < N; i++) {
+      if (TY[i] < Y_MIN) { Y_MIN = TY[i]; dipI = i; }
+      if (TY[i] > Y_MAX) Y_MAX = TY[i];
+    }
+    sDip = dipI * DS;
+    for (let i = 0; i < N; i++) {
+      const a = Math.max(i - 1, 0), b = Math.min(i + 1, N - 1);
+      SIN[i] = (TY[b] - TY[a]) / ((b - a) * DS);   // sin θ = dy/ds
+      COS[i] = (TX[b] - TX[a]) / ((b - a) * DS);   // cos θ = dx/ds
+    }
+  })();
+  function idxOf(s) { return Sim.clamp(Math.round(s / DS), 0, N - 1); }
+  /* continuous (interpolated) track coordinates — vital for smooth energy bookkeeping */
+  function yAt(s) {
+    const f = Sim.clamp(s / DS, 0, N - 1.001);
+    const i0 = Math.floor(f);
+    return TY[i0] + (TY[i0 + 1] - TY[i0]) * (f - i0);
+  }
+  function xAt(s) {
+    const f = Sim.clamp(s / DS, 0, N - 1.001);
+    const i0 = Math.floor(f);
+    return TX[i0] + (TX[i0 + 1] - TX[i0]) * (f - i0);
+  }
+  function sAtX(x) {
+    let best = 0, bd = 1e9;
+    for (let i = 0; i < N; i++) {
+      const d = Math.abs(TX[i] - x);
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best * DS;
+  }
+
+  /* ---------- state (all "spec" energies are per kg; multiply by m for joules) ---------- */
+  let s = 0, v = 0;                 // arc position (m), speed along track (m/s)
+  let fric = false, dragging = false;
+  let heatSpec = 0, e0Spec = 0, hRel = 0;
+  let capText1 = "", capText2 = "", capTimer = 0;
+  let presetOn = false, presetClock = 0, capFast = false, capStop = false;
+
+  const rH = document.getElementById("rH");
+  const rV = document.getElementById("rV");
+  const rPE = document.getElementById("rPE");
+  const rKE = document.getElementById("rKE");
+  const mass = Sim.slider("mass", function (x) { return x.toFixed(1) + " kg"; }, null);
+
+  function release() {
+    hRel = yAt(s) - Y_MIN;
+    heatSpec = 0;
+    e0Spec = G * hRel + 0.5 * v * v;
+  }
+  function placeAt(sNew) { s = Sim.clamp(sNew, 0, SMAX); v = 0; }
+
+  /* start with the ball part-way up the first slope so it moves immediately */
+  placeAt(sAtX(20)); release();
+
+  /* ---------- controls ---------- */
+  const fricBtn = document.getElementById("fricBtn");
+  fricBtn.addEventListener("click", function () { setFric(!fric); });
+  function setFric(on) {
+    fric = on;
+    fricBtn.textContent = "Friction: " + (on ? "ON (μ = 0.05)" : "OFF");
+    fricBtn.classList.toggle("on", on);
+    fricBtn.setAttribute("aria-pressed", String(on));
+  }
+  document.getElementById("resetBtn").addEventListener("click", function () {
+    presetOn = false; capTimer = 0;
+    placeAt(sAtX(20)); release();
+  });
+  document.getElementById("preset").addEventListener("click", function () {
+    setFric(false);
+    placeAt(sAtX(4)); release();
+    presetOn = true; presetClock = 0; capFast = capStop = false;
+    caption("Released from the summit —", "watch PE turn into KE…", 2.2);
+  });
+  function caption(l1, l2, secs) { capText1 = l1; capText2 = l2; capTimer = secs; }
+
+  /* ---------- drag the ball anywhere along the track ---------- */
+  function nearestS(px, py) {
+    let best = 0, bd = 1e9;
+    for (let i = 0; i < N; i += 2) {
+      const dx = sx(TX[i]) - px, dy = sy(TY[i]) - py;
+      const d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best * DS;
+  }
+  Sim.pointer(view.el, {
+    down: function (p) {
+      if (p.x < barsX - 6) {
+        dragging = true; presetOn = false; capTimer = 0;
+        placeAt(nearestS(p.x, p.y));
+      }
+    },
+    move: function (p, e, isDown) {
+      if (dragging && isDown) placeAt(nearestS(p.x, p.y));
+    },
+    up: function () {
+      if (dragging) { dragging = false; release(); }
+    }
+  });
+
+  /* ---------- physics: energy method along the track ---------- */
+  function physics(dt) {
+    if (dragging) return;
+    const n = Math.max(1, Math.ceil(dt / 0.0025));
+    const hstep = dt / n;
+    for (let k = 0; k < n; k++) {
+      const i = idxOf(s);
+      const sin = SIN[i], cos = COS[i];
+      let a = -G * sin;
+      if (fric) {
+        /* static friction holds the ball on gentle slopes once it stops */
+        if (Math.abs(v) < 0.02 && Math.abs(G * sin) <= MU * G * cos) { v = 0; continue; }
+        a -= MU * G * cos * (v >= 0 ? 1 : -1);
+        heatSpec += MU * G * cos * Math.abs(v) * hstep;
+      }
+      v += a * hstep;
+      s += v * hstep;
+      if (s < 0) { s = 0; v = 0; }
+      if (s > SMAX) { s = SMAX; v = 0; }
+      /* renormalise speed so PE + KE + heat === E0 exactly (no numerical drift) */
+      const pe = G * (yAt(s) - Y_MIN);
+      const keT = e0Spec - heatSpec - pe;
+      const vm = keT > 0 ? Math.sqrt(2 * keT) : 0;
+      v = v >= 0 ? vm : -vm;
+    }
+  }
+
+  function presetLogic() {
+    if (!presetOn) return;
+    if (!capFast && Math.abs(s - sDip) < 3 && Math.abs(v) > 1) {
+      caption("Bottom of the dip — fastest!", "All the PE has become KE.", 2.6);
+      capFast = true;
+    }
+    if (capFast && !capStop && Math.abs(v) < 0.3 && presetClock > 1.5) {
+      caption("It stops — exactly at the release height h₁.", "It can never climb above it!", 3.2);
+      capStop = true; presetOn = false;
+    }
+  }
+
+  /* ---------- screen mapping (updated every frame, used by pointer too) ---------- */
+  let sxk = 1, syk = 1, oxx = 14, groundY = 100, barsX = 260, barsW = 90;
+  function sx(x) { return oxx + x * sxk; }
+  function sy(y) { return groundY - y * syk; }
+
+  function pillDraw(lines, cx, y, c) {
+    ctx.font = "600 12.5px " + FF;
+    let mw = 0;
+    for (let i = 0; i < lines.length; i++) mw = Math.max(mw, ctx.measureText(lines[i]).width);
+    const pw = mw + 26, ph = lines.length * 17 + 12;
+    const x = Sim.clamp(cx - pw / 2, 6, view.w - pw - 6);
+    Sim.rr(ctx, x, y, pw, ph, 10);
+    ctx.fillStyle = c.surface; ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = c.ink; ctx.textAlign = "center";
+    for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], x + pw / 2, y + 21 + i * 17);
+    ctx.textAlign = "left";
+  }
+
+  /* ---------- main draw ---------- */
+  function draw(dt) {
+    physics(dt);
+    presetLogic();
+    if (presetOn) presetClock += dt;
+    if (capTimer > 0) capTimer -= dt;
+
+    const c = Sim.colors();
+    const w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+
+    /* layout */
+    barsW = Math.max(84, Math.min(120, w * 0.22));
+    barsX = w - barsW - 10;
+    oxx = 14;
+    sxk = (barsX - 24 - oxx) / 110;
+    groundY = h - 26;
+    syk = (groundY - 20) / (Y_MAX + 2);
+
+    /* height grid */
+    ctx.strokeStyle = c.grid; ctx.lineWidth = 1;
+    ctx.font = "600 10px " + FF; ctx.fillStyle = c.muted;
+    for (let ym = 5; ym <= 25; ym += 5) {
+      ctx.beginPath(); ctx.moveTo(sx(0), sy(ym)); ctx.lineTo(sx(110), sy(ym)); ctx.stroke();
+      if (ym % 10 === 0) ctx.fillText(ym + " m", sx(1), sy(ym) - 3);
+    }
+
+    /* track fill + curve */
+    ctx.beginPath();
+    ctx.moveTo(sx(TX[0]), sy(TY[0]));
+    for (let i = 2; i < N; i += 2) ctx.lineTo(sx(TX[i]), sy(TY[i]));
+    ctx.lineTo(sx(110), sy(0));
+    ctx.lineTo(sx(0), sy(0));
+    ctx.closePath();
+    ctx.fillStyle = c.surface2; ctx.globalAlpha = 0.65; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.moveTo(sx(TX[0]), sy(TY[0]));
+    for (let i = 2; i < N; i += 2) ctx.lineTo(sx(TX[i]), sy(TY[i]));
+    ctx.strokeStyle = c.accent2; ctx.lineWidth = 3; ctx.stroke();
+
+    /* ground line */
+    ctx.strokeStyle = c.muted; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(sx(0), sy(0)); ctx.lineTo(sx(110), sy(0)); ctx.stroke();
+
+    /* dashed release-height line h₁ */
+    const yRel = sy(hRel + Y_MIN);
+    ctx.strokeStyle = c.warm; ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.moveTo(sx(0), yRel); ctx.lineTo(sx(110), yRel); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.warm; ctx.font = "700 11px " + FF; ctx.textAlign = "right";
+    ctx.fillText("h₁ = " + Sim.fmt(hRel, 1) + " m", sx(109), yRel - 5);
+    ctx.textAlign = "left";
+
+    /* ball */
+    const i = idxOf(s);
+    const tpx = COS[i] * sxk, tpy = -SIN[i] * syk;
+    const tl = Math.hypot(tpx, tpy) || 1;
+    const nx = tpy / tl, ny = -tpx / tl;          // unit normal, pointing up from track
+    const rb = 10;
+    const bxp = sx(xAt(s)) + nx * rb, byp = sy(yAt(s)) + ny * rb;
+    ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(bxp, byp, rb, 0, 7); ctx.fill();
+    const ang = -s * 2.4;                          // rolling spot
+    ctx.fillStyle = c.canvasBg;
+    ctx.beginPath(); ctx.arc(bxp + Math.cos(ang) * 5, byp + Math.sin(ang) * 5, 2.4, 0, 7); ctx.fill();
+
+    /* velocity arrow along the track */
+    if (Math.abs(v) > 0.4 && !dragging) {
+      const sgn = v >= 0 ? 1 : -1;
+      const len = Math.min(10 + Math.abs(v) * 2.2, 64);
+      ctx.strokeStyle = c.hot; ctx.fillStyle = c.hot; ctx.lineWidth = 2.5;
+      Sim.arrow(ctx, bxp, byp, bxp + (tpx / tl) * len * sgn, byp + (tpy / tl) * len * sgn, 8);
+    }
+
+    /* hint */
+    ctx.fillStyle = c.muted; ctx.font = "600 11px " + FF;
+    ctx.fillText(dragging ? "let go to release!" : "drag the ball anywhere on the track", sx(1), 14);
+
+    /* ---------- energy bars ---------- */
+    const peS = G * (yAt(s) - Y_MIN);
+    const keS = 0.5 * v * v;
+    const heatS = Math.max(0, e0Spec - peS - keS);
+    const m = mass();
+    const EmaxS = G * (Y_MAX - Y_MIN + 2);
+    const bTop = 26, bBot = h - 46;
+    ctx.fillStyle = c.muted; ctx.font = "700 10px " + FF; ctx.textAlign = "center";
+    ctx.fillText("ENERGY", barsX + barsW / 2, 16);
+    const vals = [peS, keS, heatS];
+    const cols = [c.cool, c.accent, c.hot];
+    const names = ["PE", "KE", "Heat"];
+    const gap = 8, bw = (barsW - gap * 2 - 8) / 3;
+    ctx.strokeStyle = c.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(barsX, bBot + 0.5); ctx.lineTo(barsX + barsW, bBot + 0.5); ctx.stroke();
+    for (let j = 0; j < 3; j++) {
+      const x0 = barsX + 4 + j * (bw + gap);
+      const bh = Sim.clamp(vals[j] / EmaxS, 0, 1) * (bBot - bTop);
+      ctx.fillStyle = cols[j];
+      ctx.fillRect(x0, bBot - bh, bw, bh);
+      ctx.fillStyle = c.muted; ctx.font = "700 10.5px " + FF;
+      ctx.fillText(names[j], x0 + bw / 2, bBot + 14);
+      ctx.fillStyle = c.ink; ctx.font = "600 10px " + FF;
+      ctx.fillText(Math.round(vals[j] * m) + " J", x0 + bw / 2, bBot + 27);
+    }
+    /* total tick — this line never moves */
+    const ty = bBot - Sim.clamp(e0Spec / EmaxS, 0, 1) * (bBot - bTop);
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(barsX, ty); ctx.lineTo(barsX + barsW, ty); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = c.ink; ctx.font = "700 9.5px " + FF;
+    ctx.fillText("TOTAL", barsX + barsW / 2, ty - 4);
+    ctx.textAlign = "left";
+
+    /* caption */
+    if (capTimer > 0) {
+      pillDraw(capText2 ? [capText1, capText2] : [capText1], sx(45), 22, c);
+    }
+
+    /* readouts */
+    rH.textContent = Sim.fmt(yAt(s) - Y_MIN, 1) + " m";
+    rV.textContent = Sim.fmt(Math.abs(v), 1) + " m/s";
+    rPE.textContent = Math.round(peS * m) + " J";
+    rKE.textContent = Math.round(keS * m) + " J";
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mirror &amp; Lens Formula — Physics Lab</title>
+<meta name="description" content="See 1/v + 1/u = 1/f solved live with real signed numbers, next to a to-scale picture of the object and image. Concave/convex mirrors and lenses. CBSE Class 10.">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/sim.js"></script>
+<style>
+  /* tiny sim-specific tweak: 4 segment buttons must wrap on narrow phones */
+  .seg { flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../index.html">← All sims</a>
+  <h1>Mirror &amp; Lens Formula</h1>
+  <span class="chip c10">Class 10</span>
+  <button class="theme-btn" aria-label="Toggle dark mode"><span class="sun">☀️</span><span class="moon">🌙</span></button>
+</header>
+
+<main class="sim-layout">
+  <div class="stage-card">
+    <div class="btn-row" role="group" aria-label="Choose mirror or lens">
+      <div class="seg">
+        <button class="btn on" id="devCM">Concave mirror</button>
+        <button class="btn" id="devVM">Convex mirror</button>
+        <button class="btn" id="devVL">Convex lens</button>
+        <button class="btn" id="devCL">Concave lens</button>
+      </div>
+    </div>
+
+    <canvas id="stage" aria-label="The mirror or lens formula solved step by step with your numbers, above a to-scale diagram of the object and image"></canvas>
+
+    <div class="controls">
+      <div class="ctl">
+        <div class="lab"><label for="uAbs">Object distance</label><output id="uAbsOut"></output></div>
+        <input type="range" id="uAbs" min="5" max="100" step="1" value="30">
+      </div>
+      <div class="ctl">
+        <div class="lab"><label for="fAbs">Focal length (size)</label><output id="fAbsOut"></output></div>
+        <input type="range" id="fAbs" min="5" max="40" step="1" value="10">
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="preset">▶ Show me: the exam classic — object at 2F</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section>
+      <h2>What's going on?</h2>
+      <p>The formula looks scary only because of the minus signs. The rule is simple: distances are measured <b>from the mirror/lens</b>, and anything on the <b>left</b> (the side the light comes from) gets a <b>minus</b>. That's why the object distance is always written <b>u = −30 cm</b>, never +30.</p>
+      <p>Put the signed numbers in, and the formula <i>tells you</i> where the image is: <b>v negative</b> → image on the left; <b>v positive</b> → image on the right. Negative <b>m</b> → inverted image. No memorising cases — the signs do the thinking.</p>
+      <p>Try dragging the object arrow in the diagram — the equation and picture always agree.</p>
+    </section>
+    <section>
+      <h2>Formula</h2>
+      <div class="formula">
+        mirror: 1/v + 1/u = 1/f,&nbsp; m = −v/u<br>
+        lens: &nbsp;1/v − 1/u = 1/f,&nbsp; m = v/u<br>
+        h′ = m·h,&nbsp; P = 100/f(cm) D
+      </div>
+    </section>
+    <section>
+      <h2>Live values</h2>
+      <div class="readouts">
+        <div class="readout"><div class="k">image distance v</div><div class="v" id="rV">—</div></div>
+        <div class="readout"><div class="k">magnification m</div><div class="v" id="rM">—</div></div>
+        <div class="readout"><div class="k">image nature</div><div class="v" id="rNat">—</div></div>
+        <div class="readout"><div class="k">power (lens)</div><div class="v" id="rP">—</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="try"><b>Try this:</b> on the concave mirror set f to 10 cm, then slide the object slowly from 40 cm towards 5 cm. At exactly u = −10 cm the answer explodes to <b>v → ∞</b> — and one step closer, v flips positive: the image jumps behind the mirror and becomes virtual, like a shaving/makeup mirror held close to your face.</div>
+    </section>
+  </aside>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const view = Sim.canvas(document.getElementById("stage"), { aspect: 0.98, maxH: 540 });
+  const ctx = view.ctx;
+  const FONT = getComputedStyle(document.body).fontFamily;
+  const MONO = getComputedStyle(document.documentElement).getPropertyValue("--mono") || "monospace";
+  const H_OBJ = 5; // object height in cm, used for h' = m·h
+
+  /* ---------- devices ---------- */
+  const DEVICES = {
+    CM: { label: "Concave mirror", mirror: true,  fSign: -1 },
+    VM: { label: "Convex mirror",  mirror: true,  fSign: +1 },
+    VL: { label: "Convex lens",    mirror: false, fSign: +1 },
+    CL: { label: "Concave lens",   mirror: false, fSign: -1 }
+  };
+  let devKey = "CM";
+  const segBtns = {};
+  ["CM", "VM", "VL", "CL"].forEach(function (k) {
+    const b = document.getElementById("dev" + k);
+    segBtns[k] = b;
+    b.addEventListener("click", function () { setDevice(k); });
+  });
+  function setDevice(k) {
+    devKey = k;
+    for (const kk in segBtns) segBtns[kk].classList.toggle("on", kk === k);
+    fSl.set(fSl());           // refresh signed display
+    changed();
+  }
+
+  /* ---------- sliders ---------- */
+  const rV = document.getElementById("rV"), rM = document.getElementById("rM"),
+        rNat = document.getElementById("rNat"), rP = document.getElementById("rP");
+
+  const uSl = Sim.slider("uAbs", function (v) { return "u = −" + v.toFixed(0) + " cm"; }, changed);
+  const fSl = Sim.slider("fAbs", function (v) {
+    return "f = " + (DEVICES[devKey].fSign < 0 ? "−" : "+") + v.toFixed(0) + " cm";
+  }, changed);
+
+  /* ---------- physics ---------- */
+  function compute() {
+    const d = DEVICES[devKey];
+    const u = -uSl();                 // always negative (object left of device)
+    const f = d.fSign * fSl();
+    const invV = d.mirror ? (1 / f - 1 / u) : (1 / f + 1 / u);
+    const fin = Math.abs(invV) > 1 / 3000;
+    const v = fin ? 1 / invV : Infinity;
+    const m = fin ? (d.mirror ? -v / u : v / u) : NaN;
+    const virtual = fin && (d.mirror ? v > 0 : v < 0);
+    return { d: d, u: u, f: f, invV: invV, fin: fin, v: v, m: m, virtual: virtual };
+  }
+
+  function natureText(r) {
+    if (!r.fin) return "at infinity";
+    const rv = r.virtual ? "virtual" : "real";
+    const or = r.m < 0 ? "inverted" : "upright";
+    const am = Math.abs(r.m);
+    const sz = am > 1.02 ? "enlarged" : (am < 0.98 ? "diminished" : "same size");
+    return rv + " · " + or + " · " + sz;
+  }
+  function sgn(x, d) { return (x < 0 ? "−" : "+") + Math.abs(x).toFixed(d === undefined ? 1 : d); }
+
+  function changed() {
+    const r = compute();
+    rV.textContent = r.fin ? sgn(r.v, 1) + " cm" : "∞";
+    rM.textContent = r.fin ? sgn(r.m, 2) : "—";
+    rNat.textContent = natureText(r);
+    rP.textContent = r.d.mirror ? "— (mirror)" : sgn(100 / r.f, 1) + " D";
+  }
+  changed();
+
+  /* ---------- preset: exam classic, object at 2F ---------- */
+  let preset = { active: false, capT: 0 };
+  document.getElementById("preset").addEventListener("click", function () {
+    if (devKey === "VM") setDevice("CM");        // classic only exists for these two
+    if (devKey === "CL") setDevice("VL");
+    preset.active = true;
+    preset.capT = 0;
+  });
+
+  /* ---------- drag the object arrow ---------- */
+  let dragging = false;
+  let geo = null;   // filled every frame: { xDev, scale, xObj, axisY }
+  Sim.pointer(view.el, {
+    down: function (p) {
+      if (!geo) return;
+      if (Math.abs(p.x - geo.xObj) < 26 && p.y > geo.top && p.y < geo.bot) {
+        dragging = true;
+        preset.active = false;
+      }
+    },
+    move: function (p) {
+      if (!dragging || !geo) return;
+      const uCm = Sim.clamp((geo.xDev - p.x) / geo.scale, 5, 100);
+      uSl.set(Math.round(uCm));
+    },
+    up: function () { dragging = false; }
+  });
+
+  /* ============================================================
+     equation renderer — tokens are plain text or fractions
+     ============================================================ */
+  function T(t, c, fs) { return { t: t, c: c, fs: fs || 1 }; }
+  function F(top, bot, cBot, cTop) { return { f: 1, top: top, bot: bot, cBot: cBot, cTop: cTop }; }
+  function fnt(px) { return "600 " + px + "px " + MONO; }
+
+  function tokWidth(tk, base) {
+    if (tk.f) {
+      ctx.font = fnt(Math.round(base * 0.82));
+      return Math.max(ctx.measureText(tk.top).width, ctx.measureText(tk.bot).width) + 10;
+    }
+    ctx.font = fnt(Math.round(base * tk.fs));
+    return ctx.measureText(tk.t).width;
+  }
+
+  function drawTokens(list, cx, y, base, c) {
+    let total = 0, i;
+    for (i = 0; i < list.length; i++) total += tokWidth(list[i], base);
+    let x = cx - total / 2;
+    for (i = 0; i < list.length; i++) {
+      const tk = list[i], w = tokWidth(tk, base);
+      if (tk.f) {
+        const fb = Math.round(base * 0.82);
+        const yb = y - base * 0.32;
+        ctx.strokeStyle = c.ink; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(x + 2, yb); ctx.lineTo(x + w - 2, yb); ctx.stroke();
+        ctx.font = fnt(fb); ctx.textAlign = "center";
+        ctx.fillStyle = tk.cTop || c.ink;
+        ctx.fillText(tk.top, x + w / 2, yb - 5);
+        ctx.fillStyle = tk.cBot || c.ink;
+        ctx.fillText(tk.bot, x + w / 2, yb + fb + 3);
+      } else {
+        ctx.font = fnt(Math.round(base * tk.fs));
+        ctx.textAlign = "left";
+        ctx.fillStyle = tk.c || c.ink;
+        ctx.fillText(tk.t, x, y);
+      }
+      x += w;
+    }
+    ctx.textAlign = "left";
+  }
+
+  function n4(x) { return (x < 0 ? "−" : "") + Math.abs(x).toFixed(4); }
+
+  function drawEquation(c, r) {
+    const w = view.w;
+    const base = Sim.clamp(w / 24, 13, 19);
+    const lh = base * 2.35;
+    const cx = w / 2;
+    let y = base * 2.5;
+    const col = function (x) { return x < 0 ? c.hot : c.accent2; };
+
+    const uS = "−" + Math.abs(r.u).toFixed(0);
+    const fS = (r.f < 0 ? "−" : "+") + Math.abs(r.f).toFixed(0);
+    const cu = col(r.u), cf = col(r.f);
+    const mir = r.d.mirror;
+
+    /* line 0: which device + which formula */
+    ctx.font = "700 " + Math.round(base * 0.82) + "px " + FONT;
+    ctx.fillStyle = c.muted; ctx.textAlign = "center";
+    ctx.fillText(r.d.label + "  ·  " + (mir ? "mirror formula" : "lens formula"), cx, y - base * 1.75);
+    ctx.textAlign = "left";
+
+    /* line 1: formula with signed numbers substituted */
+    drawTokens([
+      F("1", "v"), T(mir ? "  +  " : "  −  "),
+      F("1", "(" + uS + ")", cu), T("  =  "),
+      F("1", "(" + fS + ")", cf)
+    ], cx, y, base, c); y += lh;
+
+    /* line 2: rearranged */
+    drawTokens([
+      F("1", "v"), T("  =  "),
+      F("1", "(" + fS + ")", cf), T(mir ? "  −  " : "  +  "),
+      F("1", "(" + uS + ")", cu)
+    ], cx, y, base, c); y += lh;
+
+    /* line 3: decimals */
+    const invF = 1 / r.f;
+    const b = mir ? -1 / r.u : 1 / r.u;
+    drawTokens([
+      T("1/v = "), T(n4(invF), col(invF)),
+      T(b < 0 ? " − " : " + "), T(n4(Math.abs(b)), col(b)),
+      T(" = "), T(n4(r.invV), col(r.invV))
+    ], cx, y, base * 0.94, c); y += lh * 0.88;
+
+    /* line 4: the answer */
+    if (r.fin) {
+      drawTokens([T("v = ", c.ink, 1.28), T(sgn(r.v, 1) + " cm", col(r.v), 1.28)], cx, y + base * 0.3, base, c);
+    } else {
+      drawTokens([T("v → ∞  (image at infinity)", c.warm, 1.06)], cx, y + base * 0.3, base, c);
+    }
+    y += lh * 0.98;
+
+    /* line 5: magnification + image height */
+    if (r.fin) {
+      const hp = r.m * H_OBJ;
+      drawTokens([
+        T(mir ? "m = −v/u = " : "m = v/u = ", c.muted, 0.86),
+        T(sgn(r.m, 2), col(r.m), 0.9),
+        T("    h′ = m×" + H_OBJ + " = ", c.muted, 0.86),
+        T(sgn(hp, 1) + " cm", col(hp), 0.9)
+      ], cx, y, base, c);
+    } else {
+      drawTokens([T("m → ∞ — rays leave parallel, they never meet", c.muted, 0.86)], cx, y, base, c);
+    }
+  }
+
+  /* ============================================================
+     to-scale axis strip
+     ============================================================ */
+  function drawAxis(c, r) {
+    const w = view.w, h = view.h;
+    const top = h * 0.565, bot = h * 0.90;
+    const axisY = (top + bot) / 2 + 6;
+    const fa = Math.abs(r.f), ua = Math.abs(r.u);
+    const mir = r.d.mirror;
+    const MAXV = 240;
+    const vShow = r.fin && Math.abs(r.v) <= MAXV;
+
+    /* extents: what must fit left / right of the device */
+    let L = ua, R = 12;
+    if (mir) { if (r.f < 0) L = Math.max(L, 2 * fa); else R = Math.max(R, 2 * fa); }
+    else { L = Math.max(L, 2 * fa); R = Math.max(R, 2 * fa); }
+    if (vShow) { if (r.v < 0) L = Math.max(L, Math.abs(r.v)); else R = Math.max(R, r.v); }
+    L += 6; R += 6;
+
+    const scale = (w - 56) / (L + R);
+    const xDev = 28 + L * scale;
+    const xObj = xDev + r.u * scale;
+    geo = { xDev: xDev, scale: scale, xObj: xObj, axisY: axisY, top: top, bot: bot };
+
+    const smallF = "600 " + Math.min(13, Math.max(10, Math.round(w / 34))) + "px " + FONT;
+
+    /* principal axis */
+    ctx.strokeStyle = c.grid; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(10, axisY); ctx.lineTo(w - 10, axisY); ctx.stroke();
+
+    /* incoming-light hint */
+    ctx.fillStyle = c.muted; ctx.font = smallF; ctx.textAlign = "left";
+    ctx.fillText("light →", 12, top + 12);
+
+    /* F / 2F ticks */
+    ctx.font = smallF; ctx.textAlign = "center";
+    function tick(xcm, lab) {
+      const x = xDev + xcm * scale;
+      ctx.strokeStyle = c.muted; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x, axisY - 5); ctx.lineTo(x, axisY + 5); ctx.stroke();
+      ctx.fillStyle = c.muted;
+      ctx.fillText(lab, x, axisY + 18);
+    }
+    if (mir) {
+      const s = r.f < 0 ? -1 : 1;
+      tick(s * fa, "F"); tick(s * 2 * fa, "C (2F)");
+    } else {
+      tick(-fa, "F"); tick(-2 * fa, "2F"); tick(fa, "F"); tick(2 * fa, "2F");
+    }
+
+    drawDevice(c, xDev, axisY, mir);
+
+    /* object arrow (draggable) */
+    const hArrowPx = Math.min(36, (axisY - top) - 12);
+    ctx.strokeStyle = c.accent; ctx.fillStyle = c.accent; ctx.lineWidth = 3;
+    Sim.arrow(ctx, xObj, axisY, xObj, axisY - hArrowPx, 8);
+    ctx.globalAlpha = dragging ? 0.5 : 0.25;
+    ctx.beginPath(); ctx.arc(xObj, axisY, 11, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.font = smallF; ctx.textAlign = "center"; ctx.fillStyle = c.accent;
+    ctx.fillText("u = −" + ua.toFixed(0), xObj, axisY + 32);
+
+    /* image arrow */
+    if (!r.fin) {
+      ctx.fillStyle = c.warm; ctx.font = smallF; ctx.textAlign = "center";
+      ctx.fillText("image at infinity →", Math.min(xDev + 80, w - 70), axisY - hArrowPx - 4);
+    } else if (!vShow) {
+      const side = (mir ? r.v < 0 : r.v < 0) ? -1 : 1;
+      const xe = side < 0 ? 22 : w - 22;
+      ctx.strokeStyle = c.warm; ctx.fillStyle = c.warm; ctx.lineWidth = 2.5;
+      Sim.arrow(ctx, xe - side * 34, axisY - hArrowPx * 0.7, xe, axisY - hArrowPx * 0.7, 8);
+      ctx.font = smallF; ctx.textAlign = side < 0 ? "left" : "right";
+      ctx.fillText("image far away: v = " + sgn(r.v, 0) + " cm", side < 0 ? 22 : w - 22, axisY - hArrowPx - 4);
+    } else {
+      const xImg = xDev + r.v * scale;
+      let hImg = hArrowPx * r.m;
+      const hMax = (axisY - top) - 10;
+      if (Math.abs(hImg) > hMax) hImg = hMax * Math.sign(hImg);
+      if (Math.abs(hImg) < 6) hImg = 6 * Math.sign(hImg || 1);
+      ctx.strokeStyle = c.warm; ctx.fillStyle = c.warm; ctx.lineWidth = 3;
+      if (r.virtual) ctx.setLineDash([5, 4]);
+      Sim.arrow(ctx, xImg, axisY, xImg, axisY - hImg, 8);
+      ctx.setLineDash([]);
+      ctx.font = smallF; ctx.textAlign = "center";
+      ctx.fillText((r.virtual ? "virtual " : "") + "image  v = " + sgn(r.v, 1),
+                   Sim.clamp(xImg, 56, w - 56),
+                   hImg > 0 ? Math.max(top + 12, axisY - hImg - 8) : axisY - 24);
+    }
+    ctx.textAlign = "left";
+  }
+
+  function drawDevice(c, x, y, mir) {
+    const hh = Math.min(46, (y - view.h * 0.565) - 4);
+    ctx.strokeStyle = c.ink; ctx.lineWidth = 2.5; ctx.lineCap = "round";
+    if (mir) {
+      const bulge = DEVICES[devKey].fSign < 0 ? 15 : -15;  // concave: ")", convex: "("
+      ctx.beginPath();
+      ctx.moveTo(x, y - hh);
+      ctx.quadraticCurveTo(x + bulge, y, x, y + hh);
+      ctx.stroke();
+      /* hatching on the silvered back */
+      ctx.lineWidth = 1.2; ctx.strokeStyle = c.muted;
+      for (let i = -4; i <= 4; i++) {
+        const yy = y + i * hh / 4.6;
+        const xx = x + bulge * (1 - (i / 4.6) * (i / 4.6)) * 0.5;
+        ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx + 7, yy - 6); ctx.stroke();
+      }
+    } else if (DEVICES[devKey].fSign > 0) {
+      /* convex lens: pointed oval */
+      ctx.fillStyle = c.dark ? "rgba(139,133,255,.16)" : "rgba(79,70,229,.10)";
+      ctx.beginPath();
+      ctx.moveTo(x, y - hh);
+      ctx.quadraticCurveTo(x - 14, y, x, y + hh);
+      ctx.quadraticCurveTo(x + 14, y, x, y - hh);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = c.accent; ctx.stroke();
+    } else {
+      /* concave lens: hourglass */
+      ctx.fillStyle = c.dark ? "rgba(139,133,255,.16)" : "rgba(79,70,229,.10)";
+      ctx.beginPath();
+      ctx.moveTo(x - 9, y - hh);
+      ctx.quadraticCurveTo(x + 1, y, x - 9, y + hh);
+      ctx.lineTo(x + 9, y + hh);
+      ctx.quadraticCurveTo(x - 1, y, x + 9, y - hh);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = c.accent; ctx.stroke();
+    }
+    ctx.fillStyle = c.muted;
+    ctx.font = "600 " + Math.max(10, Math.round(view.w / 34)) + "px " + FONT;
+    ctx.textAlign = "center";
+    ctx.fillText(mir ? "P" : "O", x + (mir ? 14 : 0), y + hh + 14);
+    ctx.textAlign = "left";
+  }
+
+  /* ---------- caption strip ---------- */
+  function drawCaption(c) {
+    const w = view.w, h = view.h;
+    const y = h - 10;
+    ctx.font = "600 " + Math.min(13.5, Math.max(10.5, Math.round(w / 36))) + "px " + FONT;
+    if (preset.capT > 0) {
+      ctx.fillStyle = c.warm; ctx.textAlign = "center";
+      ctx.fillText(w < 460 ? "at 2F: same size, inverted — 3 marks free!" :
+        "image at 2F: same size, inverted — a guaranteed 3-mark question", w / 2, y);
+    } else {
+      ctx.fillStyle = c.muted; ctx.textAlign = "center";
+      ctx.fillText(w < 460 ? "minus just means: left of the mirror/lens" :
+        "minus just means: left of the mirror/lens — against the incoming light", w / 2, y);
+    }
+    ctx.textAlign = "left";
+  }
+
+  /* ---------- main loop ---------- */
+  function draw(dt) {
+    const c = Sim.colors();
+    const w = view.w, h = view.h;
+    ctx.clearRect(0, 0, w, h);
+
+    if (preset.active) {
+      const target = 2 * fSl();
+      const cur = uSl();
+      const step = Math.max(12, Math.abs(target - cur) * 3) * dt;
+      if (Math.abs(target - cur) <= step) {
+        uSl.set(target);
+        preset.active = false;
+        preset.capT = 6;
+      } else {
+        uSl.set(Math.round((cur + Math.sign(target - cur) * step) * 10) / 10);
+      }
+    } else if (preset.capT > 0) {
+      preset.capT -= dt;
+    }
+
+    const r = compute();
+    drawEquation(c, r);
+    /* divider */
+    ctx.strokeStyle = c.grid; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(12, h * 0.555); ctx.lineTo(w - 12, h * 0.555); ctx.stroke();
+    drawAxis(c, r);
+    drawCaption(c);
+  }
+
+  Sim.loop(draw).start();
+})();
+</script>
+</body>
+</html>
